@@ -31,7 +31,6 @@ import (
     "context"
     "github.com/dentech-floss/logging/pkg/logging"
     patient_gateway_service_v1 "go.buf.build/dentechse/go-grpc-gateway-openapiv2/dentechse/patient-api-gateway/api/patient/v1"
-    "google.golang.org/protobuf/proto"
 )
 
 func (s *PatientGatewayServiceV1) FindAppointments(
