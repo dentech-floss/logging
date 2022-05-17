@@ -4,6 +4,12 @@ Provides a [zap](https://github.com/uber-go/zap) logger, adjusted for the GCP Cl
 
 About GCP Cloud Logging, the logger is configured to use [Error Reporting](https://cloud.google.com/error-reporting) as described [here](https://github.com/blendle/zapdriver#using-error-reporting).
 
+## Install
+
+```
+go get github.com/dentech-floss/logging@v0.1.0
+```
+
 ## Usage
 
 ```go
