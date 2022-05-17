@@ -1,6 +1,6 @@
 # logging
 
-Provides a [zap](https://github.com/uber-go/zap) logger, adjusted for the GCP Cloud Logging format by [zapdriver](https://github.com/blendle/zapdriver) and wrapped by [otelzap](https://github.com/uptrace/opentelemetry-go-extra/tree/main/otelzap) to provide Opentelemetry tracing/logging support. Meaning that if the incoming context contains a trace then Zap log messages will be recorded as events on the span.
+Provides a [zap](https://github.com/uber-go/zap) logger, adjusted for the GCP Cloud Logging format by [zapdriver](https://github.com/blendle/zapdriver) and wrapped by [otelzap](https://github.com/uptrace/opentelemetry-go-extra/tree/main/otelzap) to provide Opentelemetry tracing/logging support. Meaning that if the incoming context contains a trace then Zap log messages will be recorded as events on the span. The log entries in GCP will also include the "trace_id" as a field to further increase the observability.
 
 About GCP Cloud Logging, the logger is configured to use [Error Reporting](https://cloud.google.com/error-reporting) as described [here](https://github.com/blendle/zapdriver#using-error-reporting).
 
