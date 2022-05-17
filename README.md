@@ -24,7 +24,7 @@ func main() {
         &logging.LoggerConfig{
             OnGCP: true,
             AppName: "mysuperduper-service",
-        }
+        },
     )
     defer logger.Sync() // flushes buffer, if any
 }
