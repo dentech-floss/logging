@@ -50,12 +50,12 @@ func (s *PatientGatewayServiceV1) FindAppointments(
         logging.StringField("something", something),
     )
 
-	startTimeLocal, err := datetime.ISO8601StringToTime(request.StartTime)
-	if err != nil {
-		logWithContext.Warn("The start time shall be in ISO 8601 format", logging.ErrorField(err))
-		return &patient_gateway_service_v1.FindAppointmentsResponse{},
-			status.Errorf(codes.InvalidArgument, "The start time shall be in ISO 8601 format")
-	}
+    startTimeLocal, err := datetime.ISO8601StringToTime(request.StartTime)
+    if err != nil {
+        logWithContext.Warn("The start time shall be in ISO 8601 format", logging.ErrorField(err))
+        return &patient_gateway_service_v1.FindAppointmentsResponse{},
+            status.Errorf(codes.InvalidArgument, "The start time shall be in ISO 8601 format")
+    }
 }
 
 ```
