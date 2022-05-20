@@ -22,8 +22,8 @@ type LoggerWithContext struct {
 }
 
 type LoggerConfig struct {
-	OnGCP   bool
-	AppName string
+	OnGCP       bool
+	ServiceName string
 }
 
 func NewLogger(config *LoggerConfig) *Logger {
@@ -36,7 +36,7 @@ func NewLogger(config *LoggerConfig) *Logger {
 		log, err = zapdriver.NewProductionWithCore(
 			zapdriver.WrapCore(
 				zapdriver.ReportAllErrors(true),
-				zapdriver.ServiceName(config.AppName),
+				zapdriver.ServiceName(config.ServiceName),
 			),
 		)
 	} else {
