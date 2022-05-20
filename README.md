@@ -32,6 +32,8 @@ func main() {
         },
     )
     defer logger.Sync() // flushes buffer, if any
+
+    patientGatewayServiceV1 := service.NewPatientGatewayServiceV1(logger) // inject it
 }
 ```
 
