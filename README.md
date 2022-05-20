@@ -16,14 +16,19 @@ go get github.com/dentech-floss/logging@v0.1.0
 package example
 
 import (
+    "github.com/dentech-floss/metadata/pkg/metadata"
     "github.com/dentech-floss/logging/pkg/logging"
+    "github.com/dentech-floss/revision/pkg/revision"
 )
 
 func main() {
+
+    metadata := metadata.NewMetadata()
+
     logger := logging.NewLogger(
         &logging.LoggerConfig{
-            OnGCP: true,
-            ServiceName: "mysuperduper-service",
+            OnGCP:       metadata.OnGCP,
+            ServiceName: revision.ServiceName,
         },
     )
     defer logger.Sync() // flushes buffer, if any
@@ -34,8 +39,8 @@ func main() {
 package example
 
 import (
-    "context"
     "github.com/dentech-floss/logging/pkg/logging"
+
     patient_gateway_service_v1 "go.buf.build/dentechse/go-grpc-gateway-openapiv2/dentechse/patient-api-gateway/api/patient/v1"
 )
 
@@ -46,9 +51,9 @@ func (s *PatientGatewayServiceV1) FindAppointments(
 
     // Ensure trace information + request is part of the log entries
     logWithContext := s.logger.WithContext(
-		ctx,
-		logging.ProtoField("request", request),
-	)
+        ctx,
+        logging.ProtoField("request", request),
+    )
 
     logWithContext.Info(
         "Something something...",
