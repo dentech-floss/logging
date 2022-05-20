@@ -50,10 +50,7 @@ func (s *PatientGatewayServiceV1) FindAppointments(
 ) (*patient_gateway_service_v1.FindAppointmentsResponse, error) {
 
     // Ensure trace information + request is part of the log entries
-    logWithContext := s.logger.WithContext(
-        ctx,
-        logging.ProtoField("request", request),
-    )
+    logWithContext := s.logger.WithContext(ctx, logging.ProtoField("request", request))
 
     logWithContext.Info(
         "Something something...",
