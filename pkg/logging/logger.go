@@ -87,9 +87,9 @@ func (l *Logger) WithContext(
 ) *LoggerWithContext {
 	if len(fields) > 0 {
 		return &LoggerWithContext{l.Logger.WithOptions(zap.Fields(fields...)).Ctx(ctx)}
-	} else {
-		return &LoggerWithContext{l.Logger.Ctx(ctx)}
 	}
+
+	return &LoggerWithContext{l.Logger.Ctx(ctx)}
 }
 
 func (lw *LoggerWithContext) WithFields(
@@ -97,9 +97,9 @@ func (lw *LoggerWithContext) WithFields(
 ) *LoggerWithContext {
 	if len(fields) > 0 {
 		return &LoggerWithContext{lw.WithOptions(zap.Fields(fields...))}
-	} else {
-		return lw
 	}
+
+	return lw
 }
 
 func LabelField(
