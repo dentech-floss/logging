@@ -76,12 +76,14 @@ func NewLogger(config *LoggerConfig) *Logger {
 		otelzap.New(
 			log,
 			otelzap.WithMinLevel(zapcore.Level(config.MinLevel)),
-			otelzap.WithTraceIDField(true),
 		),
 	}
 }
 
-func (l *Logger) WithContext(ctx context.Context, fields ...zapcore.Field) *LoggerWithContext {
+func (l *Logger) WithContext(
+	ctx context.Context,
+	fields ...zapcore.Field,
+) *LoggerWithContext {
 	if len(fields) > 0 {
 		return &LoggerWithContext{l.Logger.WithOptions(zap.Fields(fields...)).Ctx(ctx)}
 	} else {
@@ -89,11 +91,27 @@ func (l *Logger) WithContext(ctx context.Context, fields ...zapcore.Field) *Logg
 	}
 }
 
-func LabelField(key string, value string) zapcore.Field {
+func (lw *LoggerWithContext) WithFields(
+	fields ...zapcore.Field,
+) *LoggerWithContext {
+	if len(fields) > 0 {
+		return &LoggerWithContext{lw.WithOptions(zap.Fields(fields...))}
+	} else {
+		return lw
+	}
+}
+
+func LabelField(
+	key string,
+	value string,
+) zapcore.Field {
 	return zapdriver.Label(key, value)
 }
 
-func StringField(key string, value string) zapcore.Field {
+func StringField(
+	key string,
+	value string,
+) zapcore.Field {
 	return zap.String(key, value)
 }
 
@@ -101,7 +119,10 @@ func ErrorField(err error) zapcore.Field {
 	return zap.Error(err)
 }
 
-func ProtoField(key string, value proto.Message) zapcore.Field {
+func ProtoField(
+	key string,
+	value proto.Message,
+) zapcore.Field {
 	bytes, err := protojson.Marshal(value)
 	if err != nil {
 		return ErrorField(err) // what else to do?
