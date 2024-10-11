@@ -86,6 +86,7 @@ func MaskEmail(input string) string {
 	return masked
 }
 
+// MaskString replaces all occurrences of a given string with a mask
 func MaskString(
 	input string,
 	toMask string,
