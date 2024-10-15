@@ -95,10 +95,7 @@ func (l *Logger) WithContext(
 func (lw *LoggerWithContext) WithFields(
 	fields ...zapcore.Field,
 ) *LoggerWithContext {
-	if len(fields) > 0 {
-		return &LoggerWithContext{lw.WithOptions(zap.Fields(fields...))}
-	}
-
+	lw.WithOptions(zap.Fields(fields...))
 	return lw
 }
 
