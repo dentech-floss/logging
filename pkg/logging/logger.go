@@ -92,13 +92,6 @@ func (l *Logger) WithContext(
 	return &LoggerWithContext{l.Logger.Ctx(ctx)}
 }
 
-func (lw *LoggerWithContext) WithFields(
-	fields ...zapcore.Field,
-) *LoggerWithContext {
-	lw.WithOptions(zap.Fields(fields...))
-	return lw
-}
-
 func LabelField(
 	key string,
 	value string,
