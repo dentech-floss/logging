@@ -52,7 +52,6 @@ type LoggerConfig struct {
 }
 
 func NewLogger(config *LoggerConfig) *Logger {
-
 	var log *zap.Logger
 	var err error
 
