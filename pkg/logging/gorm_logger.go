@@ -28,6 +28,7 @@ func (l *GormLogger) LogMode(level gormlogger.LogLevel) gormlogger.Interface {
 	return &GormLogger{
 		Logger:                    l.Logger,
 		LogLevel:                  level,
+		SlowThreshold:             l.SlowThreshold,
 		IgnoreRecordNotFoundError: l.IgnoreRecordNotFoundError,
 	}
 }
@@ -62,12 +63,12 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 	switch {
 	case err != nil && l.LogLevel >= gormlogger.Error && (!l.IgnoreRecordNotFoundError || !errors.Is(err, gorm.ErrRecordNotFound)):
 		sql, rows := fc()
-		logWithContext.Error("trace", zap.Error(err), zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
+		logWithContext.Error("sql error trace", zap.Error(err), zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
 	case l.SlowThreshold != 0 && elapsed > l.SlowThreshold && l.LogLevel >= gormlogger.Warn:
 		sql, rows := fc()
-		logWithContext.Warn("trace", zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
+		logWithContext.Warn("sql slow query trace", zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
 	case l.LogLevel >= gormlogger.Info:
 		sql, rows := fc()
-		logWithContext.Debug("trace", zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
+		logWithContext.Debug("sql debug trace", zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
 	}
 }
