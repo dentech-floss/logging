@@ -20,7 +20,10 @@ type GormLogger struct {
 
 func NewGormLogger(logger *Logger) *GormLogger {
 	return &GormLogger{
-		Logger: logger,
+		Logger:                    logger,
+		LogLevel:                  gormlogger.Warn,
+		SlowThreshold:             200 * time.Millisecond,
+		IgnoreRecordNotFoundError: true,
 	}
 }
 
