@@ -1,6 +1,6 @@
 module github.com/dentech-floss/logging
 
-go 1.22.0
+go 1.23
 
 toolchain go1.23.8
 
@@ -8,7 +8,7 @@ require (
 	github.com/blendle/zapdriver v1.3.1
 	github.com/uptrace/opentelemetry-go-extra/otelzap v0.3.2
 	go.uber.org/zap v1.27.0
-	google.golang.org/protobuf v1.36.7
+	google.golang.org/protobuf v1.36.8
 	gorm.io/gorm v1.30.1
 )
 
