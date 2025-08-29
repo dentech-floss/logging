@@ -92,6 +92,22 @@ func (l *Logger) WithContext(
 	return &LoggerWithContext{l.Logger.Ctx(ctx)}
 }
 
+func (l *Logger) With(fields ...zapcore.Field) *Logger {
+	return &Logger{l.Logger.WithOptions(zap.Fields(fields...))}
+}
+
+func (l *Logger) WithFields(fields ...zapcore.Field) *Logger {
+	return l.With(fields...)
+}
+
+func (lc *LoggerWithContext) With(fields ...zapcore.Field) *LoggerWithContext {
+	return &LoggerWithContext{lc.LoggerWithCtx.WithOptions(zap.Fields(fields...))}
+}
+
+func (lc *LoggerWithContext) WithFields(fields ...zapcore.Field) *LoggerWithContext {
+	return lc.With(fields...)
+}
+
 func LabelField(
 	key string,
 	value string,
@@ -104,6 +120,50 @@ func StringField(
 	value string,
 ) zapcore.Field {
 	return zap.String(key, value)
+}
+
+func IntField(
+	key string,
+	value int,
+) zapcore.Field {
+	return zap.Int(key, value)
+}
+
+func Int32Field(
+	key string,
+	value int32,
+) zapcore.Field {
+	return zap.Int32(key, value)
+}
+
+func Float32Field(
+	key string,
+	value float32,
+) zapcore.Field {
+	return zap.Float32(key, value)
+}
+
+func Int64Field(
+	key string,
+	value int64,
+) zapcore.Field {
+	return zap.Int64(key, value)
+}
+
+func Float64Field(
+	key string,
+	value float64,
+) zapcore.Field {
+	return zap.Float64(key, value)
+}
+
+// AnyField is a pragmatic catch‑all that delegates to zap.Any.
+// Use the typed helpers above when you can for better performance and clarity.
+func AnyField(
+	key string,
+	value any,
+) zapcore.Field {
+	return zap.Any(key, value)
 }
 
 func ErrorField(err error) zapcore.Field {
