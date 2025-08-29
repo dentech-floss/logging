@@ -96,16 +96,8 @@ func (l *Logger) With(fields ...zapcore.Field) *Logger {
 	return &Logger{l.Logger.WithOptions(zap.Fields(fields...))}
 }
 
-func (l *Logger) WithFields(fields ...zapcore.Field) *Logger {
-	return l.With(fields...)
-}
-
 func (lc *LoggerWithContext) With(fields ...zapcore.Field) *LoggerWithContext {
 	return &LoggerWithContext{lc.LoggerWithCtx.WithOptions(zap.Fields(fields...))}
-}
-
-func (lc *LoggerWithContext) WithFields(fields ...zapcore.Field) *LoggerWithContext {
-	return lc.With(fields...)
 }
 
 func LabelField(
