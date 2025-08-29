@@ -2,12 +2,12 @@
 //
 // Why wrap zap fields?
 //
-// We intentionally provide helpers like StringField, IntField, etc. even
+// We intentionally provide helpers like String, Int, etc. even
 // though they currently delegate directly to zap.String, zap.Int, etc.
 // This is not accidental "extra code," but a deliberate design choice:
 //
 //   - Consistency: all log fields in our codebase are constructed via
-//     logging.XxxField(), which makes call sites uniform and easy to scan.
+//     logging.Xxx(), which makes call sites uniform and easy to scan.
 //
 //   - Future-proofing seam: should we need to enforce redaction of sensitive
 //     values, normalize units (durations in ms, sizes in bytes), or adopt a
@@ -22,8 +22,8 @@
 // explicit seam they provide. For now most helpers are thin, but the design
 // allows us to layer in policy when needed (e.g. redaction, normalization).
 //
-// Developers new to this codebase should not assume XxxField does anything
-// magical today—think of it as a hedge that keeps our logging consistent and
+// Developers new to this codebase should not assume Xxx() does anything
+// magical today. Think of it as a hedge that keeps our logging consistent and
 // adaptable.
 package logging
 
@@ -127,69 +127,98 @@ func (lc *LoggerWithContext) With(fields ...zapcore.Field) *LoggerWithContext {
 	return &LoggerWithContext{lc.LoggerWithCtx.WithOptions(zap.Fields(fields...))}
 }
 
+// LabelField - kept for backwards compatibility. Use Label() instead.
 func LabelField(
+	key string,
+	value string,
+) zapcore.Field {
+	return Label(key, value)
+}
+
+// StringField - kept for backwards compatibility. Use String() instead.
+func StringField(
+	key string,
+	value string,
+) zapcore.Field {
+	return String(key, value)
+}
+
+func Label(
 	key string,
 	value string,
 ) zapcore.Field {
 	return zapdriver.Label(key, value)
 }
 
-func StringField(
+func String(
 	key string,
 	value string,
 ) zapcore.Field {
 	return zap.String(key, value)
 }
 
-func IntField(
+func Int(
 	key string,
 	value int,
 ) zapcore.Field {
 	return zap.Int(key, value)
 }
 
-func Int32Field(
+func Int32(
 	key string,
 	value int32,
 ) zapcore.Field {
 	return zap.Int32(key, value)
 }
 
-func Float32Field(
+func Float32(
 	key string,
 	value float32,
 ) zapcore.Field {
 	return zap.Float32(key, value)
 }
 
-func Int64Field(
+func Int64(
 	key string,
 	value int64,
 ) zapcore.Field {
 	return zap.Int64(key, value)
 }
 
-func Float64Field(
+func Float64(
 	key string,
 	value float64,
 ) zapcore.Field {
 	return zap.Float64(key, value)
 }
 
-// AnyField is a pragmatic catch‑all that delegates to zap.Any.
+// Any is a pragmatic catch‑all that delegates to zap.Any.
 // Use the typed helpers above when you can for better performance and clarity.
-func AnyField(
+func Any(
 	key string,
 	value any,
 ) zapcore.Field {
 	return zap.Any(key, value)
 }
 
+// ErrorField - kept for backwards compatibility. Use Error() instead.
 func ErrorField(err error) zapcore.Field {
+	return Error(err)
+}
+
+func Error(err error) zapcore.Field {
 	return zap.Error(err)
 }
 
+// ProtoField - kept for backwards compatibility. Use Proto() instead.
 func ProtoField(
+	key string,
+	value proto.Message,
+) zapcore.Field {
+	return Proto(key, value)
+}
+
+func Proto(
 	key string,
 	value proto.Message,
 ) zapcore.Field {
