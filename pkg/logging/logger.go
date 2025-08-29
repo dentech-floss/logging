@@ -1,3 +1,30 @@
+// Package logging provides a thin abstraction layer around zap/otelzap.
+//
+// Why wrap zap fields?
+//
+// We intentionally provide helpers like StringField, IntField, etc. even
+// though they currently delegate directly to zap.String, zap.Int, etc.
+// This is not accidental "extra code," but a deliberate design choice:
+//
+//   - Consistency: all log fields in our codebase are constructed via
+//     logging.XxxField(), which makes call sites uniform and easy to scan.
+//
+//   - Future-proofing seam: should we need to enforce redaction of sensitive
+//     values, normalize units (durations in ms, sizes in bytes), or adopt a
+//     different logging backend, we can do so centrally without touching
+//     thousands of call sites.
+//
+//   - Performance: we can encourage use of typed helpers over AnyField to
+//     avoid reflection overhead in hot paths.
+//
+// Go idiom tends to avoid unnecessary abstraction; we believe the small cost
+// of these thin wrappers is outweighed by the consistency, flexibility, and
+// explicit seam they provide. For now most helpers are thin, but the design
+// allows us to layer in policy when needed (e.g. redaction, normalization).
+//
+// Developers new to this codebase should not assume XxxField does anything
+// magical today—think of it as a hedge that keeps our logging consistent and
+// adaptable.
 package logging
 
 import (
