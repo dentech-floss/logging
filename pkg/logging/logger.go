@@ -1,3 +1,30 @@
+// Package logging provides a thin abstraction layer around zap/otelzap.
+//
+// Why wrap zap fields?
+//
+// We intentionally provide helpers like String, Int, etc. even
+// though they currently delegate directly to zap.String, zap.Int, etc.
+// This is not accidental "extra code," but a deliberate design choice:
+//
+//   - Consistency: all log fields in our codebase are constructed via
+//     logging.Xxx(), which makes call sites uniform and easy to scan.
+//
+//   - Future-proofing seam: should we need to enforce redaction of sensitive
+//     values, normalize units (durations in ms, sizes in bytes), or adopt a
+//     different logging backend, we can do so centrally without touching
+//     thousands of call sites.
+//
+//   - Performance: we can encourage use of typed helpers over AnyField to
+//     avoid reflection overhead in hot paths.
+//
+// Go idiom tends to avoid unnecessary abstraction; we believe the small cost
+// of these thin wrappers is outweighed by the consistency, flexibility, and
+// explicit seam they provide. For now most helpers are thin, but the design
+// allows us to layer in policy when needed (e.g. redaction, normalization).
+//
+// Developers new to this codebase should not assume Xxx() does anything
+// magical today. Think of it as a hedge that keeps our logging consistent and
+// adaptable.
 package logging
 
 import (
@@ -90,25 +117,118 @@ func (l *Logger) WithContext(
 	return &LoggerWithContext{l.Logger.Ctx(ctx)}
 }
 
+func (l *Logger) With(fields ...zapcore.Field) *Logger {
+	return &Logger{l.Logger.WithOptions(zap.Fields(fields...))}
+}
+
+func (lc *LoggerWithContext) With(fields ...zapcore.Field) *LoggerWithContext {
+	return &LoggerWithContext{lc.LoggerWithCtx.WithOptions(zap.Fields(fields...))}
+}
+
+// LabelField is a wrapper for the Label function, maintained for backwards compatibility.
+// It creates a zapcore.Field with the given key and value as a label.
+//
+// Deprecated: Use Label() instead.
 func LabelField(
+	key string,
+	value string,
+) zapcore.Field {
+	return Label(key, value)
+}
+
+// StringField is a wrapper for the String function, maintained for backwards compatibility.
+// It creates a zapcore.Field with the given key and value as a string field.
+//
+// Deprecated: Use String() instead.
+func StringField(
+	key string,
+	value string,
+) zapcore.Field {
+	return String(key, value)
+}
+
+func Label(
 	key string,
 	value string,
 ) zapcore.Field {
 	return zapdriver.Label(key, value)
 }
 
-func StringField(
+func String(
 	key string,
 	value string,
 ) zapcore.Field {
 	return zap.String(key, value)
 }
 
+func Int(
+	key string,
+	value int,
+) zapcore.Field {
+	return zap.Int(key, value)
+}
+
+func Int32(
+	key string,
+	value int32,
+) zapcore.Field {
+	return zap.Int32(key, value)
+}
+
+func Float32(
+	key string,
+	value float32,
+) zapcore.Field {
+	return zap.Float32(key, value)
+}
+
+func Int64(
+	key string,
+	value int64,
+) zapcore.Field {
+	return zap.Int64(key, value)
+}
+
+func Float64(
+	key string,
+	value float64,
+) zapcore.Field {
+	return zap.Float64(key, value)
+}
+
+// Any is a pragmatic catch‑all that delegates to zap.Any.
+// Use the typed helpers above when you can for better performance and clarity.
+func Any(
+	key string,
+	value any,
+) zapcore.Field {
+	return zap.Any(key, value)
+}
+
+// ErrorField is a wrapper for the Error function, maintained for backwards compatibility.
+// It creates a zapcore.Field for the provided error.
+//
+// Deprecated: Use Error() instead.
 func ErrorField(err error) zapcore.Field {
+	return Error(err)
+}
+
+func Error(err error) zapcore.Field {
 	return zap.Error(err)
 }
 
+// ProtoField is a wrapper for the Proto function, maintained for backwards compatibility.
+// It creates a zapcore.Field for the provided proto.Message.
+//
+// Deprecated: Use Proto() instead.
 func ProtoField(
+	key string,
+	value proto.Message,
+) zapcore.Field {
+	return Proto(key, value)
+}
+
+func Proto(
 	key string,
 	value proto.Message,
 ) zapcore.Field {
