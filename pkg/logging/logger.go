@@ -79,7 +79,6 @@ type LoggerConfig struct {
 }
 
 func NewLogger(config *LoggerConfig) *Logger {
-
 	var log *zap.Logger
 	var err error
 
@@ -126,7 +125,10 @@ func (lc *LoggerWithContext) With(fields ...zapcore.Field) *LoggerWithContext {
 	return &LoggerWithContext{lc.LoggerWithCtx.WithOptions(zap.Fields(fields...))}
 }
 
-// LabelField - kept for backwards compatibility. Use Label() instead.
+// LabelField is a wrapper for the Label function, maintained for backwards compatibility.
+// It creates a zapcore.Field with the given key and value as a label.
+//
+// Deprecated: Use Label() instead.
 func LabelField(
 	key string,
 	value string,
@@ -134,7 +136,10 @@ func LabelField(
 	return Label(key, value)
 }
 
-// StringField - kept for backwards compatibility. Use String() instead.
+// StringField is a wrapper for the String function, maintained for backwards compatibility.
+// It creates a zapcore.Field with the given key and value as a string field.
+//
+// Deprecated: Use String() instead.
 func StringField(
 	key string,
 	value string,
@@ -200,7 +205,10 @@ func Any(
 	return zap.Any(key, value)
 }
 
-// ErrorField - kept for backwards compatibility. Use Error() instead.
+// ErrorField is a wrapper for the Error function, maintained for backwards compatibility.
+// It creates a zapcore.Field for the provided error.
+//
+// Deprecated: Use Error() instead.
 func ErrorField(err error) zapcore.Field {
 	return Error(err)
 }
@@ -209,7 +217,10 @@ func Error(err error) zapcore.Field {
 	return zap.Error(err)
 }
 
-// ProtoField - kept for backwards compatibility. Use Proto() instead.
+// ProtoField is a wrapper for the Proto function, maintained for backwards compatibility.
+// It creates a zapcore.Field for the provided proto.Message.
+//
+// Deprecated: Use Proto() instead.
 func ProtoField(
 	key string,
 	value proto.Message,
