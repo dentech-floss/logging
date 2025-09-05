@@ -103,7 +103,6 @@ func NewLogger(config *LoggerConfig) *Logger {
 		otelzap.New(
 			log,
 			otelzap.WithMinLevel(zapcore.Level(config.MinLevel)),
-			otelzap.WithTraceIDField(true),
 		),
 	}
 }
