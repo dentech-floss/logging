@@ -6,7 +6,7 @@ require (
 	github.com/blendle/zapdriver v1.3.1
 	github.com/uptrace/opentelemetry-go-extra/otelzap v0.3.2
 	go.uber.org/zap v1.27.0
-	google.golang.org/protobuf v1.36.8
+	google.golang.org/protobuf v1.36.9
 	gorm.io/gorm v1.30.1
 )
 
