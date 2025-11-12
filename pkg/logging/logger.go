@@ -143,6 +143,34 @@ func (lc *LoggerWithContext) With(fields ...any) *LoggerWithContext {
 	}
 }
 
+func (lc *LoggerWithContext) Debug(
+	msg string,
+	args ...any,
+) {
+	lc.l.DebugContext(lc.ctx, msg, args...)
+}
+
+func (lc *LoggerWithContext) Info(
+	msg string,
+	args ...any,
+) {
+	lc.l.InfoContext(lc.ctx, msg, args...)
+}
+
+func (lc *LoggerWithContext) Warn(
+	msg string,
+	args ...any,
+) {
+	lc.l.WarnContext(lc.ctx, msg, args...)
+}
+
+func (lc *LoggerWithContext) Error(
+	msg string,
+	args ...any,
+) {
+	lc.l.ErrorContext(lc.ctx, msg, args...)
+}
+
 func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
 	return &spanContextLogHandler{Handler: handler}
 }
@@ -167,6 +195,17 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 		)
 	}
 	return t.Handler.Handle(ctx, record)
+}
+
+func ContextWithLoggerFields(
+	ctx context.Context,
+	attrs []slog.Attr,
+) context.Context {
+	return context.WithValue(
+		ctx,
+		loggerFieldsContextKey{},
+		attrs,
+	)
 }
 
 func LoggerFieldsFromContext(
