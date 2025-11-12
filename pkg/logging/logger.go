@@ -30,11 +30,12 @@ package logging
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"log/slog"
+	"os"
+	"time"
 
-	"github.com/blendle/zapdriver"
-	"github.com/uptrace/opentelemetry-go-extra/otelzap"
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"go.opentelemetry.io/otel/trace"
 
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -65,11 +66,13 @@ const (
 )
 
 type Logger struct {
-	*otelzap.Logger
+	*slog.Logger
+	f map[string]slog.Value
 }
 
 type LoggerWithContext struct {
-	otelzap.LoggerWithCtx
+	ctx context.Context
+	l   *Logger
 }
 
 type LoggerConfig struct {
@@ -78,51 +81,123 @@ type LoggerConfig struct {
 	MinLevel    Level
 }
 
-func NewLogger(config *LoggerConfig) *Logger {
-	var log *zap.Logger
-	var err error
+type (
+	loggerFieldsContextKey struct{}
+	loggerContextKey       struct{}
+)
 
-	if config.OnGCP {
-		// https://github.com/blendle/zapdriver#using-error-reporting
-		log, err = zapdriver.NewProductionWithCore(
-			zapdriver.WrapCore(
-				zapdriver.ReportAllErrors(true),
-				zapdriver.ServiceName(config.ServiceName),
-			),
-		)
-	} else {
-		log, err = zapdriver.NewDevelopment()
-	}
-	if err != nil {
-		panic(err)
-	}
+type spanContextLogHandler struct {
+	slog.Handler
+}
+
+func NewLogger(config *LoggerConfig) *Logger {
+	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{ReplaceAttr: replacer})
+	instrumentedHandler := handlerWithSpanContext(jsonHandler)
+	log := slog.New(instrumentedHandler)
 
 	return &Logger{
-		// instrumentation
-		otelzap.New(
-			log,
-			otelzap.WithMinLevel(zapcore.Level(config.MinLevel)),
-		),
+		Logger: log,
 	}
 }
 
 func (l *Logger) WithContext(
 	ctx context.Context,
-	fields ...zapcore.Field,
+	fields ...slog.Attr,
 ) *LoggerWithContext {
-	if len(fields) > 0 {
-		return &LoggerWithContext{l.Logger.WithOptions(zap.Fields(fields...)).Ctx(ctx)}
+	log := &LoggerWithContext{
+		ctx: ctx,
+		l:   l,
 	}
 
-	return &LoggerWithContext{l.Logger.Ctx(ctx)}
+	for _, field := range fields {
+		log.l.f[field.Key] = field.Value
+	}
+
+	return log
 }
 
-func (l *Logger) With(fields ...zapcore.Field) *Logger {
-	return &Logger{l.Logger.WithOptions(zap.Fields(fields...))}
+func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
+	ctx = context.WithValue(ctx, loggerContextKey{}, logger)
+	return ctx
 }
 
-func (lc *LoggerWithContext) With(fields ...zapcore.Field) *LoggerWithContext {
-	return &LoggerWithContext{lc.LoggerWithCtx.WithOptions(zap.Fields(fields...))}
+func LoggerFromContext(ctx context.Context) *Logger {
+	logger, ok := ctx.Value(loggerContextKey{}).(*Logger)
+	if !ok {
+		return nil
+	}
+
+	return logger
+}
+
+func (l *Logger) With(fields ...any) *Logger {
+	log := l.Logger.With(fields...)
+
+	return &Logger{Logger: log}
+}
+
+func (lc *LoggerWithContext) With(fields ...any) *LoggerWithContext {
+	return &LoggerWithContext{
+		ctx: lc.ctx,
+		l:   lc.l.With(fields...),
+	}
+}
+
+func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
+	return &spanContextLogHandler{Handler: handler}
+}
+
+// Handle overrides slog.Handler's Handle method. This adds attributes from the
+// span context to the slog.Record.
+func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	if s := trace.SpanContextFromContext(ctx); s.IsValid() {
+		record.AddAttrs(
+			slog.Any("logging.googleapis.com/trace", s.TraceID()),
+		)
+		record.AddAttrs(
+			slog.Any("logging.googleapis.com/spanId", s.SpanID()),
+		)
+		record.AddAttrs(
+			slog.Bool("logging.googleapis.com/trace_sampled", s.TraceFlags().IsSampled()),
+		)
+	}
+	return t.Handler.Handle(ctx, record)
+}
+
+func LoggerFieldsFromContext(
+	ctx context.Context,
+) []slog.Attr {
+	var loggerFields []slog.Attr
+	if v := ctx.Value(loggerFieldsContextKey{}); v != nil {
+		loggerFields = append(loggerFields, v.([]slog.Attr)...)
+	}
+	return loggerFields
+}
+
+func replacer(groups []string, a slog.Attr) slog.Attr {
+	// Rename attribute keys to match Cloud Logging structured log format
+	switch a.Key {
+	case slog.LevelKey:
+		a.Key = "severity"
+		// Map slog.Level string values to Cloud Logging LogSeverity
+		// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogSeverity
+		if level := a.Value.Any().(slog.Level); level == slog.LevelWarn {
+			a.Value = slog.StringValue("WARNING")
+		}
+	case slog.TimeKey:
+		a.Key = "timestamp"
+	case slog.MessageKey:
+		a.Key = "message"
+	case slog.SourceKey:
+		a.Key = "logging.googleapis.com/sourceLocation"
+	}
+	return a
+}
+
+func formatDuration(
+	duration time.Duration,
+) string {
+	return fmt.Sprintf("%fs", duration.Seconds())
 }
 
 // LabelField is a wrapper for the Label function, maintained for backwards compatibility.
@@ -132,7 +207,7 @@ func (lc *LoggerWithContext) With(fields ...zapcore.Field) *LoggerWithContext {
 func LabelField(
 	key string,
 	value string,
-) zapcore.Field {
+) slog.Attr {
 	return Label(key, value)
 }
 
@@ -143,57 +218,57 @@ func LabelField(
 func StringField(
 	key string,
 	value string,
-) zapcore.Field {
+) slog.Attr {
 	return String(key, value)
 }
 
 func Label(
 	key string,
 	value string,
-) zapcore.Field {
-	return zapdriver.Label(key, value)
+) slog.Attr {
+	return slog.String(key, value)
 }
 
 func String(
 	key string,
 	value string,
-) zapcore.Field {
-	return zap.String(key, value)
+) slog.Attr {
+	return slog.String(key, value)
 }
 
 func Int(
 	key string,
 	value int,
-) zapcore.Field {
-	return zap.Int(key, value)
+) slog.Attr {
+	return slog.Int(key, value)
 }
 
 func Int32(
 	key string,
 	value int32,
-) zapcore.Field {
-	return zap.Int32(key, value)
+) slog.Attr {
+	return slog.Int64(key, int64(value))
 }
 
 func Float32(
 	key string,
 	value float32,
-) zapcore.Field {
-	return zap.Float32(key, value)
+) slog.Attr {
+	return slog.Float64(key, float64(value))
 }
 
 func Int64(
 	key string,
 	value int64,
-) zapcore.Field {
-	return zap.Int64(key, value)
+) slog.Attr {
+	return slog.Int64(key, value)
 }
 
 func Float64(
 	key string,
 	value float64,
-) zapcore.Field {
-	return zap.Float64(key, value)
+) slog.Attr {
+	return slog.Float64(key, value)
 }
 
 // Any is a pragmatic catch‑all that delegates to zap.Any.
@@ -201,20 +276,24 @@ func Float64(
 func Any(
 	key string,
 	value any,
-) zapcore.Field {
-	return zap.Any(key, value)
+) slog.Attr {
+	return slog.Any(key, value)
 }
 
 // ErrorField is a wrapper for the Error function, maintained for backwards compatibility.
 // It creates a zapcore.Field for the provided error.
 //
 // Deprecated: Use Error() instead.
-func ErrorField(err error) zapcore.Field {
+func ErrorField(err error) slog.Attr {
 	return Error(err)
 }
 
-func Error(err error) zapcore.Field {
-	return zap.Error(err)
+func Error(err error) slog.Attr {
+	return slog.String("error", err.Error())
+}
+
+func Duration(duration time.Duration) slog.Attr {
+	return slog.String("duration", formatDuration(duration))
 }
 
 // ProtoField is a wrapper for the Proto function, maintained for backwards compatibility.
@@ -224,17 +303,17 @@ func Error(err error) zapcore.Field {
 func ProtoField(
 	key string,
 	value proto.Message,
-) zapcore.Field {
+) slog.Attr {
 	return Proto(key, value)
 }
 
 func Proto(
 	key string,
 	value proto.Message,
-) zapcore.Field {
+) slog.Attr {
 	bytes, err := protojson.Marshal(value)
 	if err != nil {
-		return ErrorField(err) // what else to do?
+		return Error(err) // what else to do?
 	}
-	return zap.Any(key, json.RawMessage(bytes))
+	return slog.Any(key, json.RawMessage(bytes))
 }

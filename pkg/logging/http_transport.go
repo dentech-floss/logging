@@ -5,12 +5,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"strconv"
-
-	"go.uber.org/zap/zapcore"
-)
-
-type (
-	loggerAdditionalFieldsContextKey struct{}
+	"time"
 )
 
 const (
@@ -30,10 +25,7 @@ func NewLoggingTransport(base http.RoundTripper, logger *Logger) *LoggingTranspo
 
 func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
-	var loggerFields []zapcore.Field
-	if v := ctx.Value(loggerAdditionalFieldsContextKey{}); v != nil {
-		loggerFields = append(loggerFields, v.([]zapcore.Field)...)
-	}
+	var loggerFields []any
 	dumpedReq := dumpRequest(req)
 	loggerFields = append(
 		loggerFields,
@@ -41,10 +33,18 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		String("request", dumpedReq),
 		String(logTypeLabel, logTypeValueExternalRequest),
 	)
+	startTime := time.Now()
 	resp, err := lt.rt.RoundTrip(req)
+	duration := time.Since(startTime)
+	loggerFields = append(
+		loggerFields,
+		String("duration", fmt.Sprintf("%fs", duration.Seconds())),
+		Int64("duration_ms", duration.Milliseconds()),
+	)
 	if err != nil {
 		loggerFields = append(loggerFields, Error(err))
-		lt.l.Error(
+		lt.l.ErrorContext(
+			ctx,
 			"call to external service FAILED",
 			loggerFields...,
 		)
@@ -56,17 +56,13 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		String("response", dumpedResp),
 		String(loggingHTTPStatusCodeLabel, strconv.Itoa(resp.StatusCode)),
 	)
-	if resp.StatusCode >= 400 {
-		lt.l.Error(
-			"call to external service: non-OK status code",
-			loggerFields...,
-		)
-	} else {
-		lt.l.Info(
-			"called external service",
-			loggerFields...,
-		)
-	}
+
+	lt.l.InfoContext(
+		ctx,
+		"called external service",
+		loggerFields...,
+	)
+
 	return resp, nil
 }
 
