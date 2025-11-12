@@ -67,7 +67,6 @@ const (
 
 type Logger struct {
 	*slog.Logger
-	f map[string]slog.Value
 }
 
 type LoggerWithContext struct {
@@ -103,15 +102,11 @@ func NewLogger(config *LoggerConfig) *Logger {
 // Deprecated: for backwards compatibility. Use ContextWithLogger instead.
 func (l *Logger) WithContext(
 	ctx context.Context,
-	fields ...slog.Attr,
+	args ...any,
 ) *LoggerWithContext {
 	log := &LoggerWithContext{
 		ctx: ctx,
-		l:   l,
-	}
-
-	for _, field := range fields {
-		log.l.f[field.Key] = field.Value
+		l:   l.With(args...),
 	}
 
 	return log
@@ -131,16 +126,16 @@ func LoggerFromContext(ctx context.Context) *Logger {
 	return logger
 }
 
-func (l *Logger) With(fields ...any) *Logger {
-	log := l.Logger.With(fields...)
+func (l *Logger) With(args ...any) *Logger {
+	log := l.Logger.With(args...)
 
 	return &Logger{Logger: log}
 }
 
-func (lc *LoggerWithContext) With(fields ...any) *LoggerWithContext {
+func (lc *LoggerWithContext) With(args ...any) *LoggerWithContext {
 	return &LoggerWithContext{
 		ctx: lc.ctx,
-		l:   lc.l.With(fields...),
+		l:   lc.l.With(args...),
 	}
 }
 
