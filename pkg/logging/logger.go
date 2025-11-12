@@ -150,6 +150,11 @@ func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
 // Handle overrides slog.Handler's Handle method. This adds attributes from the
 // span context to the slog.Record.
 func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	attrs := LoggerFieldsFromContext(ctx)
+	if len(attrs) == 0 {
+		record.AddAttrs(attrs...)
+	}
+
 	if s := trace.SpanContextFromContext(ctx); s.IsValid() {
 		record.AddAttrs(
 			slog.Any("logging.googleapis.com/trace", s.TraceID()),
