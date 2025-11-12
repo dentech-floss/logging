@@ -100,6 +100,7 @@ func NewLogger(config *LoggerConfig) *Logger {
 	}
 }
 
+// Deprecated: for backwards compatibility. Use ContextWithLogger instead.
 func (l *Logger) WithContext(
 	ctx context.Context,
 	fields ...slog.Attr,
@@ -141,6 +142,11 @@ func (lc *LoggerWithContext) With(fields ...any) *LoggerWithContext {
 		ctx: lc.ctx,
 		l:   lc.l.With(fields...),
 	}
+}
+
+// Deprecated: for backwards compatibility. Use ContextWithLogger instead.
+func (lc *LoggerWithContext) Context() context.Context {
+	return lc.ctx
 }
 
 func (lc *LoggerWithContext) Debug(
