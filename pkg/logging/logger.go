@@ -30,9 +30,10 @@ package logging
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -90,7 +91,10 @@ type spanContextLogHandler struct {
 }
 
 func NewLogger(config *LoggerConfig) *Logger {
-	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{ReplaceAttr: replacer})
+	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		AddSource:   true,
+		ReplaceAttr: replacer,
+	})
 	instrumentedHandler := handlerWithSpanContext(jsonHandler)
 	log := slog.New(instrumentedHandler)
 
@@ -176,12 +180,26 @@ func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
 	return &spanContextLogHandler{Handler: handler}
 }
 
+func (t *spanContextLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
+	return t.Handler.Enabled(ctx, level)
+}
+
 // Handle overrides slog.Handler's Handle method. This adds attributes from the
 // span context to the slog.Record.
 func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) error {
 	attrs := LoggerFieldsFromContext(ctx)
-	if len(attrs) == 0 {
+	if len(attrs) != 0 {
 		record.AddAttrs(attrs...)
+	}
+
+	if record.Level >= slog.LevelWarn {
+		stackBuf := make([]byte, 2048)
+		runtime.Stack(stackBuf, false)
+		record.AddAttrs(
+			slog.String("stacktrace",
+				trimStack(stackBuf),
+			),
+		)
 	}
 
 	if s := trace.SpanContextFromContext(ctx); s.IsValid() {
@@ -196,6 +214,18 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 		)
 	}
 	return t.Handler.Handle(ctx, record)
+}
+
+func (t *spanContextLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &spanContextLogHandler{
+		Handler: t.Handler.WithAttrs(attrs),
+	}
+}
+
+func (t *spanContextLogHandler) WithGroup(name string) slog.Handler {
+	return &spanContextLogHandler{
+		Handler: t.Handler.WithGroup(name),
+	}
 }
 
 func ContextWithLoggerFields(
@@ -239,10 +269,39 @@ func replacer(groups []string, a slog.Attr) slog.Attr {
 	return a
 }
 
-func formatDuration(
-	duration time.Duration,
-) string {
-	return fmt.Sprintf("%fs", duration.Seconds())
+var stackSkipPrefixes = []string{
+	"runtime/debug.",
+	"log/slog.",
+	"github.com/dentech-floss/logging/pkg/logging.",
+}
+
+func trimStack(stack []byte) string {
+	s := string(stack)
+	lines := strings.Split(s, "\n")
+	if len(lines) <= 1 {
+		return s
+	}
+
+	startLine := 1
+
+	for i := 1; i < len(lines)-1; i += 2 {
+		packageLine := lines[i]
+		isNoisy := false
+
+		for _, prefix := range stackSkipPrefixes {
+			if strings.Contains(packageLine, prefix) {
+				isNoisy = true
+				break
+			}
+		}
+
+		if !isNoisy {
+			startLine = i
+			break
+		}
+	}
+
+	return lines[0] + "\n" + strings.Join(lines[startLine:], "\n")
 }
 
 // LabelField is a wrapper for the Label function, maintained for backwards compatibility.
@@ -271,7 +330,24 @@ func Label(
 	key string,
 	value string,
 ) slog.Attr {
-	return slog.String(key, value)
+	return slog.Group("logging.googleapis.com/labels", slog.String(key, value))
+}
+
+// Labels creates a group for Google Cloud Logging labels.
+//
+// Arguments must be provided in pairs: the first element of each pair is the key (string),
+// and the second is the value (string). The number of arguments must be even.
+// Example:
+//
+//	Labels("user_id", "123", "role", "admin")
+//
+// This will produce a group with keys "user_id" and "role" and their corresponding string values.
+//
+// Note: Both key and value must be strings.
+func Labels(
+	args ...any,
+) slog.Attr {
+	return slog.Group("logging.googleapis.com/labels", args...)
 }
 
 func String(
@@ -337,8 +413,8 @@ func Error(err error) slog.Attr {
 	return slog.String("error", err.Error())
 }
 
-func Duration(duration time.Duration) slog.Attr {
-	return slog.String("duration", formatDuration(duration))
+func Duration(key string, duration time.Duration) slog.Attr {
+	return slog.Duration(key, duration)
 }
 
 // ProtoField is a wrapper for the Proto function, maintained for backwards compatibility.

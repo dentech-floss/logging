@@ -74,7 +74,7 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 			ctx,
 			"sql error trace",
 			Error(err),
-			Duration(elapsed),
+			Duration("duration", elapsed),
 			Int64("rows", rows),
 			String("sql", sql),
 		)
@@ -83,7 +83,7 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 		l.Logger.WarnContext(
 			ctx,
 			"sql slow query trace",
-			Duration(elapsed),
+			Duration("duration", elapsed),
 			Int64("rows", rows),
 			String("sql", sql),
 		)
@@ -92,7 +92,7 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 		l.Logger.DebugContext(
 			ctx,
 			"sql debug trace",
-			Duration(elapsed),
+			Duration("duration", elapsed),
 			Int64("rows", rows),
 			String("sql", sql),
 		)

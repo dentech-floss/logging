@@ -38,7 +38,7 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	duration := time.Since(startTime)
 	loggerFields = append(
 		loggerFields,
-		String("duration", fmt.Sprintf("%fs", duration.Seconds())),
+		Duration("duration", duration),
 		Int64("duration_ms", duration.Milliseconds()),
 	)
 	if err != nil {
