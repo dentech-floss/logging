@@ -103,6 +103,20 @@ func NewLogger(config *LoggerConfig) *Logger {
 	}
 }
 
+func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
+	ctx = context.WithValue(ctx, loggerContextKey{}, logger)
+	return ctx
+}
+
+func LoggerFromContext(ctx context.Context) *Logger {
+	logger, ok := ctx.Value(loggerContextKey{}).(*Logger)
+	if !ok {
+		return nil
+	}
+
+	return logger
+}
+
 // Deprecated: for backwards compatibility. Use ContextWithLogger instead.
 func (l *Logger) WithContext(
 	ctx context.Context,
@@ -116,18 +130,9 @@ func (l *Logger) WithContext(
 	return log
 }
 
-func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
-	ctx = context.WithValue(ctx, loggerContextKey{}, logger)
-	return ctx
-}
-
-func LoggerFromContext(ctx context.Context) *Logger {
-	logger, ok := ctx.Value(loggerContextKey{}).(*Logger)
-	if !ok {
-		return nil
-	}
-
-	return logger
+// Deprecated: for backwards compatibility.
+func (l *Logger) Sync() error {
+	return nil
 }
 
 func (l *Logger) With(args ...any) *Logger {
