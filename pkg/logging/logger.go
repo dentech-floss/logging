@@ -32,7 +32,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
-	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -48,22 +48,22 @@ type Level int8
 const (
 	// DebugLevel logs are typically voluminous, and are usually disabled in
 	// production.
-	DebugLevel Level = iota - 1
+	DebugLevel Level = -4
 	// InfoLevel is the default logging priority.
-	InfoLevel
+	InfoLevel = 0
 	// WarnLevel logs are more important than Info, but don't need individual
 	// human review.
-	WarnLevel
+	WarnLevel = 4
 	// ErrorLevel logs are high-priority. If an application is running smoothly,
 	// it shouldn't generate any error-level logs.
-	ErrorLevel
+	ErrorLevel = 8
 	// DPanicLevel logs are particularly important errors. In development the
 	// logger panics after writing the message.
-	DPanicLevel
+	DPanicLevel = 9
 	// PanicLevel logs a message, then panics.
-	PanicLevel
+	PanicLevel = 16
 	// FatalLevel logs a message, then calls os.Exit(1).
-	FatalLevel
+	FatalLevel = 32
 )
 
 type Logger struct {
@@ -94,6 +94,7 @@ func NewLogger(config *LoggerConfig) *Logger {
 	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		AddSource:   true,
 		ReplaceAttr: replacer,
+		Level:       slog.Level(config.MinLevel),
 	})
 	instrumentedHandler := handlerWithSpanContext(jsonHandler)
 	log := slog.New(instrumentedHandler)
@@ -141,6 +142,60 @@ func (l *Logger) With(args ...any) *Logger {
 	return &Logger{Logger: log}
 }
 
+// PanicContext logs at [PanicLevel] with the given context and then panics with the given message.
+//
+// Parameters:
+//
+//	ctx - the context for logging
+//	msg - the message to log and panic with
+//	args - additional arguments for formatting the log message
+func (l *Logger) PanicContext(
+	ctx context.Context,
+	msg string,
+	args ...any,
+) {
+	l.Log(ctx, slog.Level(PanicLevel), msg, args...)
+	panic(msg)
+}
+
+// Panic logs at [PanicLevel] and then panics with the given message.
+//
+// Parameters:
+//
+//	msg - the message to log and panic with
+//	args - additional arguments for formatting the log message
+func (l *Logger) Panic(msg string, args ...any) {
+	l.PanicContext(context.Background(), msg, args...)
+	panic(msg)
+}
+
+// FatalContext logs at [FatalLevel] using the provided context, then terminates the application.
+//
+// Parameters:
+//
+//	ctx - the context for logging
+//	msg - the message to log before exiting
+//	args - additional arguments for formatting the log message
+func (l *Logger) FatalContext(
+	ctx context.Context,
+	msg string,
+	args ...any,
+) {
+	l.Log(ctx, slog.Level(FatalLevel), msg, args...)
+	os.Exit(1)
+}
+
+// Fatal logs at [FatalLevel] and then terminates the application.
+//
+// Parameters:
+//
+//	msg - the message to log before exiting
+//	args - additional arguments for formatting the log message
+func (l *Logger) Fatal(msg string, args ...any) {
+	l.FatalContext(context.Background(), msg, args...)
+	os.Exit(1)
+}
+
 func (lc *LoggerWithContext) With(args ...any) *LoggerWithContext {
 	return &LoggerWithContext{
 		ctx: lc.ctx,
@@ -181,6 +236,22 @@ func (lc *LoggerWithContext) Error(
 	lc.l.ErrorContext(lc.ctx, msg, args...)
 }
 
+func (lc *LoggerWithContext) Panic(
+	msg string,
+	args ...any,
+) {
+	lc.l.PanicContext(lc.ctx, msg, args...)
+	panic(msg)
+}
+
+func (lc *LoggerWithContext) Fatal(
+	msg string,
+	args ...any,
+) {
+	lc.l.FatalContext(lc.ctx, msg, args...)
+	os.Exit(1)
+}
+
 func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
 	return &spanContextLogHandler{Handler: handler}
 }
@@ -198,11 +269,10 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 	}
 
 	if record.Level >= slog.LevelWarn {
-		stackBuf := make([]byte, 2048)
-		runtime.Stack(stackBuf, false)
+		stack := debug.Stack()
 		record.AddAttrs(
 			slog.String("stacktrace",
-				trimStack(stackBuf),
+				trimStack(stack),
 			),
 		)
 	}
@@ -306,6 +376,8 @@ func trimStack(stack []byte) string {
 		}
 	}
 
+	// If all stack frames match the skip prefixes, startLine remains 1.
+	// In this case, we return the stack trace starting from line 1 (the error message and all frames).
 	return lines[0] + "\n" + strings.Join(lines[startLine:], "\n")
 }
 
@@ -350,9 +422,18 @@ func Label(
 //
 // Note: Both key and value must be strings.
 func Labels(
-	args ...any,
+	args ...string,
 ) slog.Attr {
-	return slog.Group("logging.googleapis.com/labels", args...)
+	anyArgs := make([]any, len(args))
+	for i, v := range args {
+		anyArgs[i] = v
+	}
+
+	if len(anyArgs)%2 != 0 {
+		anyArgs = append(anyArgs, nil)
+	}
+
+	return slog.Group("logging.googleapis.com/labels", anyArgs...)
 }
 
 func String(
@@ -397,7 +478,7 @@ func Float64(
 	return slog.Float64(key, value)
 }
 
-// Any is a pragmatic catch‑all that delegates to zap.Any.
+// Any is a pragmatic catch‑all that delegates to slog.Any.
 // Use the typed helpers above when you can for better performance and clarity.
 func Any(
 	key string,
@@ -415,7 +496,7 @@ func ErrorField(err error) slog.Attr {
 }
 
 func Error(err error) slog.Attr {
-	return slog.String("error", err.Error())
+	return slog.Any("error", err)
 }
 
 func Duration(key string, duration time.Duration) slog.Attr {
