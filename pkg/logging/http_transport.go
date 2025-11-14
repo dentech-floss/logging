@@ -12,8 +12,8 @@ const (
 )
 
 type LoggingOptions struct {
-	DumpRequestOut bool
-	DumpResponse   bool
+	DumpRequestFunc  func(args []any, req *http.Request) []any
+	DumpResponseFunc func(args []any, resp *http.Response) []any
 }
 
 type LoggingTransport struct {
@@ -37,14 +37,17 @@ func NewLoggingTransport(
 func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
 	var loggerFields []any
-	dumpedReq := dumpRequest(req)
 	loggerFields = append(
 		loggerFields,
 		Label("log_type", logTypeValueExternalRequest),
 		String("url", req.URL.String()),
-		String("request", dumpedReq),
-		Any("request_headers", req.Header),
+		// Any("request_headers", req.Header),
 	)
+
+	if lt.o != nil && lt.o.DumpRequestFunc != nil {
+		loggerFields = lt.o.DumpRequestFunc(loggerFields, req)
+	}
+
 	startTime := time.Now()
 	resp, err := lt.rt.RoundTrip(req)
 	duration := time.Since(startTime)
@@ -62,12 +65,12 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		)
 		return nil, err
 	}
-	dumpedResp := dumpResponse(resp)
+	if lt.o != nil && lt.o.DumpResponseFunc != nil {
+		loggerFields = lt.o.DumpResponseFunc(loggerFields, resp)
+	}
 	loggerFields = append(
 		loggerFields,
-		String("response", dumpedResp),
 		Int("status", resp.StatusCode),
-		Any("response_headers", resp.Header),
 	)
 
 	lt.l.InfoContext(
@@ -79,21 +82,31 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, nil
 }
 
-func dumpRequest(
+// DumpRequest returns a string representation of an HTTP request,
+// including headers and body. If dumping fails, it returns an error message.
+func DumpRequest(
 	req *http.Request,
-) string {
+) (string, error) {
+	if req == nil {
+		return "", fmt.Errorf("nil request")
+	}
 	reqDump, err := httputil.DumpRequestOut(req, true)
 	if err == nil {
-		return string(reqDump)
+		return string(reqDump), nil
 	}
 
-	return fmt.Sprintf("Error dumping request: %v", err)
+	return "", fmt.Errorf("failed dumping request: %w", err)
 }
 
-func dumpResponse(resp *http.Response) string {
+// DumpResponse returns a string representation of an HTTP response,
+// including headers and body. If dumping fails, it returns an error message.
+func DumpResponse(resp *http.Response) (string, error) {
+	if resp == nil {
+		return "", fmt.Errorf("nil response")
+	}
 	respDump, err := httputil.DumpResponse(resp, true)
 	if err == nil {
-		return string(respDump)
+		return string(respDump), nil
 	}
-	return fmt.Sprintf("Error dumping response: %v", err)
+	return "", fmt.Errorf("failed dumping response: %w", err)
 }
