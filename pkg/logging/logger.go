@@ -100,7 +100,10 @@ func NewLogger(config *LoggerConfig) *Logger {
 	log := slog.New(instrumentedHandler)
 
 	return &Logger{
-		Logger: log,
+		Logger: log.With(slog.Group("serviceContext", String(
+			"service",
+			config.ServiceName,
+		))),
 	}
 }
 
@@ -488,7 +491,7 @@ func Any(
 }
 
 // ErrorField is a wrapper for the Error function, maintained for backwards compatibility.
-// It creates a zapcore.Field for the provided error.
+// It creates a slog.Attr for the provided error.
 //
 // Deprecated: Use Error() instead.
 func ErrorField(err error) slog.Attr {
@@ -504,7 +507,7 @@ func Duration(key string, duration time.Duration) slog.Attr {
 }
 
 // ProtoField is a wrapper for the Proto function, maintained for backwards compatibility.
-// It creates a zapcore.Field for the provided proto.Message.
+// It creates a slog.Attr for the provided proto.Message.
 //
 // Deprecated: Use Proto() instead.
 func ProtoField(

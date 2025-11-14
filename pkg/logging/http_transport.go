@@ -4,23 +4,34 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httputil"
-	"strconv"
 	"time"
 )
 
 const (
-	logTypeLabel                = "log_type"
 	logTypeValueExternalRequest = "external_request"
-	loggingHTTPStatusCodeLabel  = "http_status_code"
 )
+
+type LoggingOptions struct {
+	DumpRequestOut bool
+	DumpResponse   bool
+}
 
 type LoggingTransport struct {
 	rt http.RoundTripper
 	l  *Logger
+	o  *LoggingOptions
 }
 
-func NewLoggingTransport(base http.RoundTripper, logger *Logger) *LoggingTransport {
-	return &LoggingTransport{rt: base, l: logger}
+func NewLoggingTransport(
+	base http.RoundTripper,
+	logger *Logger,
+	options *LoggingOptions,
+) *LoggingTransport {
+	return &LoggingTransport{
+		rt: base,
+		l:  logger,
+		o:  options,
+	}
 }
 
 func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -29,9 +40,10 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	dumpedReq := dumpRequest(req)
 	loggerFields = append(
 		loggerFields,
+		Label("log_type", logTypeValueExternalRequest),
 		String("url", req.URL.String()),
 		String("request", dumpedReq),
-		String(logTypeLabel, logTypeValueExternalRequest),
+		Any("request_headers", req.Header),
 	)
 	startTime := time.Now()
 	resp, err := lt.rt.RoundTrip(req)
@@ -54,7 +66,8 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	loggerFields = append(
 		loggerFields,
 		String("response", dumpedResp),
-		String(loggingHTTPStatusCodeLabel, strconv.Itoa(resp.StatusCode)),
+		Int("status", resp.StatusCode),
+		Any("response_headers", resp.Header),
 	)
 
 	lt.l.InfoContext(
