@@ -41,7 +41,6 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		loggerFields,
 		Label("log_type", logTypeValueExternalRequest),
 		String("url", req.URL.String()),
-		// Any("request_headers", req.Header),
 	)
 
 	if lt.o != nil && lt.o.DumpRequestFunc != nil {

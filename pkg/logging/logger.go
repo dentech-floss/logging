@@ -1,9 +1,9 @@
-// Package logging provides a thin abstraction layer around zap/otelzap.
+// Package logging provides a thin abstraction layer around slog.
 //
-// Why wrap zap fields?
+// Why wrap slog fields?
 //
 // We intentionally provide helpers like String, Int, etc. even
-// though they currently delegate directly to zap.String, zap.Int, etc.
+// though they currently delegate directly to slog.String, slog.Int, etc.
 // This is not accidental "extra code," but a deliberate design choice:
 //
 //   - Consistency: all log fields in our codebase are constructed via
@@ -385,7 +385,7 @@ func trimStack(stack []byte) string {
 }
 
 // LabelField is a wrapper for the Label function, maintained for backwards compatibility.
-// It creates a zapcore.Field with the given key and value as a label.
+// It creates a slog.Attr with the given key and value as a label.
 //
 // Deprecated: Use Label() instead.
 func LabelField(
@@ -396,7 +396,7 @@ func LabelField(
 }
 
 // StringField is a wrapper for the String function, maintained for backwards compatibility.
-// It creates a zapcore.Field with the given key and value as a string field.
+// It creates a slog.Attr with the given key and value as a string field.
 //
 // Deprecated: Use String() instead.
 func StringField(
