@@ -27,8 +27,8 @@ func main() {
 
     logger := logging.NewLogger(
         &logging.LoggerConfig{
-            OnGCP:       metadata.OnGCP,
             ServiceName: revision.ServiceName,
+            MinLevel:    logging.InfoLevel,
         },
     )
     defer logger.Sync() // flushes buffer, if any
@@ -52,20 +52,19 @@ func (s *PatientGatewayServiceV1) FindAppointments(
 ) (*patient_gateway_service_v1.FindAppointmentsResponse, error) {
 
     // Ensure trace information + request is part of the log entries
-    logWithContext := s.logger.WithContext(ctx, logging.ProtoField("request", request))
+    logWithContext := s.logger.WithContext(ctx, logging.Proto("request", request))
 
     logWithContext.Info(
         "Something something...",
-        logging.StringField("something", something),
+        logging.String("something", something),
     )
 
     startTimeLocal, err := datetime.ISO8601StringToTime(request.StartTime)
     if err != nil {
-        logWithContext.Warn("The start time shall be in ISO 8601 format", logging.ErrorField(err))
+        logWithContext.Warn("The start time shall be in ISO 8601 format", logging.Error(err))
         return &patient_gateway_service_v1.FindAppointmentsResponse{},
             status.Errorf(codes.InvalidArgument, "The start time shall be in ISO 8601 format")
     }
 }
 
 ```
-
