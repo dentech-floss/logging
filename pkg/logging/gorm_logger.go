@@ -3,9 +3,9 @@ package logging
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
-	"go.uber.org/zap"
 	"gorm.io/gorm"
 	gormlogger "gorm.io/gorm/logger"
 )
@@ -40,21 +40,23 @@ func (l *GormLogger) Info(ctx context.Context, str string, args ...interface{}) 
 	if l.LogLevel < gormlogger.Info {
 		return
 	}
-	l.Logger.WithContext(ctx).Sugar().Debugf(str, args...)
+
+	l.Logger.DebugContext(ctx, fmt.Sprintf(str, args...))
 }
 
 func (l *GormLogger) Warn(ctx context.Context, str string, args ...interface{}) {
 	if l.LogLevel < gormlogger.Warn {
 		return
 	}
-	l.Logger.WithContext(ctx).Sugar().Warnf(str, args...)
+
+	l.Logger.WarnContext(ctx, fmt.Sprintf(str, args...))
 }
 
 func (l *GormLogger) Error(ctx context.Context, str string, args ...interface{}) {
 	if l.LogLevel < gormlogger.Error {
 		return
 	}
-	l.Logger.WithContext(ctx).Sugar().Errorf(str, args...)
+	l.Logger.ErrorContext(ctx, fmt.Sprintf(str, args...))
 }
 
 func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
@@ -62,16 +64,37 @@ func (l *GormLogger) Trace(ctx context.Context, begin time.Time, fc func() (stri
 		return
 	}
 	elapsed := time.Since(begin)
-	logWithContext := l.Logger.WithContext(ctx)
+
 	switch {
-	case err != nil && l.LogLevel >= gormlogger.Error && (!l.IgnoreRecordNotFoundError || !errors.Is(err, gorm.ErrRecordNotFound)):
+	case err != nil &&
+		l.LogLevel >= gormlogger.Error &&
+		(!l.IgnoreRecordNotFoundError || !errors.Is(err, gorm.ErrRecordNotFound)):
 		sql, rows := fc()
-		logWithContext.Error("sql error trace", zap.Error(err), zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
+		l.Logger.ErrorContext(
+			ctx,
+			"sql error trace",
+			Error(err),
+			Duration("duration", elapsed),
+			Int64("rows", rows),
+			String("sql", sql),
+		)
 	case l.SlowThreshold != 0 && elapsed > l.SlowThreshold && l.LogLevel >= gormlogger.Warn:
 		sql, rows := fc()
-		logWithContext.Warn("sql slow query trace", zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
+		l.Logger.WarnContext(
+			ctx,
+			"sql slow query trace",
+			Duration("duration", elapsed),
+			Int64("rows", rows),
+			String("sql", sql),
+		)
 	case l.LogLevel >= gormlogger.Info:
 		sql, rows := fc()
-		logWithContext.Debug("sql debug trace", zap.Duration("elapsed", elapsed), zap.Int64("rows", rows), zap.String("sql", sql))
+		l.Logger.DebugContext(
+			ctx,
+			"sql debug trace",
+			Duration("duration", elapsed),
+			Int64("rows", rows),
+			String("sql", sql),
+		)
 	}
 }
