@@ -76,7 +76,6 @@ type LoggerWithContext struct {
 }
 
 type LoggerConfig struct {
-	OnGCP       bool
 	ServiceName string
 	MinLevel    Level
 }
@@ -108,8 +107,7 @@ func NewLogger(config *LoggerConfig) *Logger {
 }
 
 func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
-	ctx = context.WithValue(ctx, loggerContextKey{}, logger)
-	return ctx
+	return context.WithValue(ctx, loggerContextKey{}, logger)
 }
 
 func LoggerFromContext(ctx context.Context) *Logger {
@@ -244,7 +242,6 @@ func (lc *LoggerWithContext) Panic(
 	args ...any,
 ) {
 	lc.l.PanicContext(lc.ctx, msg, args...)
-	panic(msg)
 }
 
 func (lc *LoggerWithContext) Fatal(
@@ -252,7 +249,6 @@ func (lc *LoggerWithContext) Fatal(
 	args ...any,
 ) {
 	lc.l.FatalContext(lc.ctx, msg, args...)
-	os.Exit(1)
 }
 
 func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
@@ -332,10 +328,22 @@ func replacer(groups []string, a slog.Attr) slog.Attr {
 	switch a.Key {
 	case slog.LevelKey:
 		a.Key = "severity"
+		level := a.Value.Any().(slog.Level)
 		// Map slog.Level string values to Cloud Logging LogSeverity
 		// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogSeverity
-		if level := a.Value.Any().(slog.Level); level == slog.LevelWarn {
+		switch level {
+		case slog.LevelDebug:
+			a.Value = slog.StringValue("DEBUG")
+		case slog.LevelInfo:
+			a.Value = slog.StringValue("INFO")
+		case slog.LevelWarn:
 			a.Value = slog.StringValue("WARNING")
+		case slog.LevelError, DPanicLevel:
+			a.Value = slog.StringValue("ERROR")
+		case PanicLevel:
+			a.Value = slog.StringValue("CRITICAL")
+		case FatalLevel:
+			a.Value = slog.StringValue("EMERGENCY")
 		}
 	case slog.TimeKey:
 		a.Key = "timestamp"
