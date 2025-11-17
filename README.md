@@ -7,7 +7,7 @@ The logger is also configured to support [Error Reporting](https://cloud.google.
 ## Install
 
 ```
-go get github.com/dentech-floss/logging@v0.1.0
+go get github.com/dentech-floss/logging@v0.3.0
 ```
 
 ## Usage
