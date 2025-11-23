@@ -30,6 +30,7 @@ package logging
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"runtime/debug"
@@ -76,6 +77,7 @@ type LoggerWithContext struct {
 }
 
 type LoggerConfig struct {
+	ProjectID   string
 	ServiceName string
 	MinLevel    Level
 }
@@ -87,6 +89,7 @@ type (
 
 type spanContextLogHandler struct {
 	slog.Handler
+	ProjectID string
 }
 
 func NewLogger(config *LoggerConfig) *Logger {
@@ -95,7 +98,10 @@ func NewLogger(config *LoggerConfig) *Logger {
 		ReplaceAttr: replacer,
 		Level:       slog.Level(config.MinLevel),
 	})
-	instrumentedHandler := handlerWithSpanContext(jsonHandler)
+	instrumentedHandler := handlerWithSpanContext(
+		config.ProjectID,
+		jsonHandler,
+	)
 	log := slog.New(instrumentedHandler)
 
 	return &Logger{
@@ -251,8 +257,11 @@ func (lc *LoggerWithContext) Fatal(
 	lc.l.FatalContext(lc.ctx, msg, args...)
 }
 
-func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
-	return &spanContextLogHandler{Handler: handler}
+func handlerWithSpanContext(projectID string, handler slog.Handler) *spanContextLogHandler {
+	return &spanContextLogHandler{
+		Handler:   handler,
+		ProjectID: projectID,
+	}
 }
 
 func (t *spanContextLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -278,12 +287,14 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 
 	if s := trace.SpanContextFromContext(ctx); s.IsValid() {
 		record.AddAttrs(
-			slog.Any("logging.googleapis.com/trace", s.TraceID()),
-		)
-		record.AddAttrs(
+			slog.Any(
+				"logging.googleapis.com/trace",
+				fmt.Sprintf("projects/%s/traces/%s",
+					t.ProjectID,
+					s.TraceID(),
+				),
+			),
 			slog.Any("logging.googleapis.com/spanId", s.SpanID()),
-		)
-		record.AddAttrs(
 			slog.Bool("logging.googleapis.com/trace_sampled", s.TraceFlags().IsSampled()),
 		)
 	}
