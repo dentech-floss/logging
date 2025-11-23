@@ -36,6 +36,10 @@ func NewLoggingTransport(
 
 func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
+	log := LoggerFromContext(ctx)
+	if log == nil {
+		log = lt.l
+	}
 	var loggerFields []any
 	loggerFields = append(
 		loggerFields,
@@ -57,7 +61,7 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	)
 	if err != nil {
 		loggerFields = append(loggerFields, Error(err))
-		lt.l.ErrorContext(
+		log.ErrorContext(
 			ctx,
 			"call to external service FAILED",
 			loggerFields...,
@@ -72,7 +76,7 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 		Int("status", resp.StatusCode),
 	)
 
-	lt.l.InfoContext(
+	log.InfoContext(
 		ctx,
 		"called external service",
 		loggerFields...,
