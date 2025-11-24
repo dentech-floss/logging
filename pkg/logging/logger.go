@@ -31,6 +31,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"runtime/debug"
@@ -80,6 +81,8 @@ type LoggerConfig struct {
 	ProjectID   string
 	ServiceName string
 	MinLevel    Level
+
+	Output io.Writer
 }
 
 type (
@@ -93,7 +96,12 @@ type spanContextLogHandler struct {
 }
 
 func NewLogger(config *LoggerConfig) *Logger {
-	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	output := config.Output
+	if output == nil {
+		output = os.Stdout
+	}
+
+	jsonHandler := slog.NewJSONHandler(output, &slog.HandlerOptions{
 		AddSource:   true,
 		ReplaceAttr: replacer,
 		Level:       slog.Level(config.MinLevel),
@@ -303,13 +311,15 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 
 func (t *spanContextLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &spanContextLogHandler{
-		Handler: t.Handler.WithAttrs(attrs),
+		ProjectID: t.ProjectID,
+		Handler:   t.Handler.WithAttrs(attrs),
 	}
 }
 
 func (t *spanContextLogHandler) WithGroup(name string) slog.Handler {
 	return &spanContextLogHandler{
-		Handler: t.Handler.WithGroup(name),
+		ProjectID: t.ProjectID,
+		Handler:   t.Handler.WithGroup(name),
 	}
 }
 
