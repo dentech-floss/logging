@@ -78,10 +78,14 @@ type LoggerWithContext struct {
 }
 
 type LoggerConfig struct {
-	ProjectID   string
+	// ProjectID is the GCP project identifier used to format trace IDs for Cloud Logging integration.
+	ProjectID string
+	// ServiceName specifies the name of the service emitting logs.
 	ServiceName string
-	MinLevel    Level
+	// MinLevel sets the minimum log level to be recorded.
+	MinLevel Level
 
+	// Output specifies where logs should be written. If nil, defaults to os.Stdout.
 	Output io.Writer
 }
 
