@@ -30,6 +30,8 @@ package logging
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"runtime/debug"
@@ -76,8 +78,15 @@ type LoggerWithContext struct {
 }
 
 type LoggerConfig struct {
+	// ProjectID is the GCP project identifier used to format trace IDs for Cloud Logging integration.
+	ProjectID string
+	// ServiceName specifies the name of the service emitting logs.
 	ServiceName string
-	MinLevel    Level
+	// MinLevel sets the minimum log level to be recorded.
+	MinLevel Level
+
+	// Output specifies where logs should be written. If nil, defaults to os.Stdout.
+	Output io.Writer
 }
 
 type (
@@ -87,15 +96,24 @@ type (
 
 type spanContextLogHandler struct {
 	slog.Handler
+	ProjectID string
 }
 
 func NewLogger(config *LoggerConfig) *Logger {
-	jsonHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	output := config.Output
+	if output == nil {
+		output = os.Stdout
+	}
+
+	jsonHandler := slog.NewJSONHandler(output, &slog.HandlerOptions{
 		AddSource:   true,
 		ReplaceAttr: replacer,
 		Level:       slog.Level(config.MinLevel),
 	})
-	instrumentedHandler := handlerWithSpanContext(jsonHandler)
+	instrumentedHandler := handlerWithSpanContext(
+		config.ProjectID,
+		jsonHandler,
+	)
 	log := slog.New(instrumentedHandler)
 
 	return &Logger{
@@ -251,8 +269,11 @@ func (lc *LoggerWithContext) Fatal(
 	lc.l.FatalContext(lc.ctx, msg, args...)
 }
 
-func handlerWithSpanContext(handler slog.Handler) *spanContextLogHandler {
-	return &spanContextLogHandler{Handler: handler}
+func handlerWithSpanContext(projectID string, handler slog.Handler) *spanContextLogHandler {
+	return &spanContextLogHandler{
+		Handler:   handler,
+		ProjectID: projectID,
+	}
 }
 
 func (t *spanContextLogHandler) Enabled(ctx context.Context, level slog.Level) bool {
@@ -278,12 +299,14 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 
 	if s := trace.SpanContextFromContext(ctx); s.IsValid() {
 		record.AddAttrs(
-			slog.Any("logging.googleapis.com/trace", s.TraceID()),
-		)
-		record.AddAttrs(
+			slog.Any(
+				"logging.googleapis.com/trace",
+				fmt.Sprintf("projects/%s/traces/%s",
+					t.ProjectID,
+					s.TraceID(),
+				),
+			),
 			slog.Any("logging.googleapis.com/spanId", s.SpanID()),
-		)
-		record.AddAttrs(
 			slog.Bool("logging.googleapis.com/trace_sampled", s.TraceFlags().IsSampled()),
 		)
 	}
@@ -292,13 +315,15 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 
 func (t *spanContextLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	return &spanContextLogHandler{
-		Handler: t.Handler.WithAttrs(attrs),
+		ProjectID: t.ProjectID,
+		Handler:   t.Handler.WithAttrs(attrs),
 	}
 }
 
 func (t *spanContextLogHandler) WithGroup(name string) slog.Handler {
 	return &spanContextLogHandler{
-		Handler: t.Handler.WithGroup(name),
+		ProjectID: t.ProjectID,
+		Handler:   t.Handler.WithGroup(name),
 	}
 }
 
