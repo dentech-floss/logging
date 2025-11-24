@@ -7,7 +7,7 @@ The logger is also configured to support [Error Reporting](https://cloud.google.
 ## Install
 
 ```
-go get github.com/dentech-floss/logging@v0.3.0
+go get github.com/dentech-floss/logging@v0.3.1
 ```
 
 ## Usage
@@ -27,6 +27,7 @@ func main() {
 
     logger := logging.NewLogger(
         &logging.LoggerConfig{
+            ProjectID:    metadata.ProjectID,
             ServiceName: revision.ServiceName,
             MinLevel:    logging.InfoLevel,
         },
