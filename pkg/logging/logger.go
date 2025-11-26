@@ -50,18 +50,18 @@ type Level slog.Level
 const (
 	// DebugLevel logs are typically voluminous, and are usually disabled in
 	// production.
-	DebugLevel = Level(slog.LevelDebug)
+	DebugLevel Level = Level(slog.LevelDebug)
 	// InfoLevel is the default logging priority.
-	InfoLevel = Level(slog.LevelInfo)
+	InfoLevel Level = Level(slog.LevelInfo)
 	// WarnLevel logs are more important than Info, but don't need individual
 	// human review.
-	WarnLevel = Level(slog.LevelWarn)
+	WarnLevel Level = Level(slog.LevelWarn)
 	// ErrorLevel logs are high-priority. If an application is running smoothly,
 	// it shouldn't generate any error-level logs.
-	ErrorLevel = Level(slog.LevelError)
+	ErrorLevel Level = Level(slog.LevelError)
 	// DPanicLevel logs are particularly important errors. In development the
 	// logger panics after writing the message.
-	DPanicLevel = Level(slog.LevelError + 4)
+	DPanicLevel Level = Level(slog.LevelError + 4)
 	// PanicLevel logs a message, then panics.
 	PanicLevel Level = 16
 	// FatalLevel logs a message, then calls os.Exit(1).
