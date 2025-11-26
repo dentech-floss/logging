@@ -45,27 +45,27 @@ import (
 )
 
 // A Level is a logging priority. Higher levels are more important.
-type Level int8
+type Level slog.Level
 
 const (
 	// DebugLevel logs are typically voluminous, and are usually disabled in
 	// production.
-	DebugLevel Level = -4
+	DebugLevel = Level(slog.LevelDebug)
 	// InfoLevel is the default logging priority.
-	InfoLevel = 0
+	InfoLevel = Level(slog.LevelInfo)
 	// WarnLevel logs are more important than Info, but don't need individual
 	// human review.
-	WarnLevel = 4
+	WarnLevel = Level(slog.LevelWarn)
 	// ErrorLevel logs are high-priority. If an application is running smoothly,
 	// it shouldn't generate any error-level logs.
-	ErrorLevel = 8
+	ErrorLevel = Level(slog.LevelError)
 	// DPanicLevel logs are particularly important errors. In development the
 	// logger panics after writing the message.
-	DPanicLevel = 9
+	DPanicLevel = Level(slog.LevelError + 4)
 	// PanicLevel logs a message, then panics.
-	PanicLevel = 16
+	PanicLevel Level = 16
 	// FatalLevel logs a message, then calls os.Exit(1).
-	FatalLevel = 32
+	FatalLevel Level = 32
 )
 
 type Logger struct {
@@ -356,14 +356,14 @@ func replacer(groups []string, a slog.Attr) slog.Attr {
 		level := a.Value.Any().(slog.Level)
 		// Map slog.Level string values to Cloud Logging LogSeverity
 		// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogSeverity
-		switch level {
-		case slog.LevelDebug:
+		switch Level(level) {
+		case DebugLevel:
 			a.Value = slog.StringValue("DEBUG")
-		case slog.LevelInfo:
+		case InfoLevel:
 			a.Value = slog.StringValue("INFO")
-		case slog.LevelWarn:
+		case WarnLevel:
 			a.Value = slog.StringValue("WARNING")
-		case slog.LevelError, DPanicLevel:
+		case ErrorLevel, DPanicLevel:
 			a.Value = slog.StringValue("ERROR")
 		case PanicLevel:
 			a.Value = slog.StringValue("CRITICAL")
