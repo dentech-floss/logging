@@ -60,9 +60,9 @@ const (
 	// logger panics after writing the message.
 	DPanicLevel = slog.LevelError + 4
 	// PanicLevel logs a message, then panics.
-	PanicLevel = 16
+	PanicLevel = slog.Level(16)
 	// FatalLevel logs a message, then calls os.Exit(1).
-	FatalLevel = 32
+	FatalLevel = slog.Level(32)
 )
 
 type Logger struct {
