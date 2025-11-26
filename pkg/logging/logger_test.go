@@ -16,6 +16,7 @@ func TestLogger(t *testing.T) {
 	logger := logging.NewLogger(&logging.LoggerConfig{
 		ProjectID:   "test-project",
 		ServiceName: "test-service",
+		MinLevel:    logging.DebugLevel,
 
 		Output: &buf,
 	})

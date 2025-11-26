@@ -44,28 +44,25 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// A Level is a logging priority. Higher levels are more important.
-type Level slog.Level
-
 const (
 	// DebugLevel logs are typically voluminous, and are usually disabled in
 	// production.
-	DebugLevel Level = Level(slog.LevelDebug)
+	DebugLevel = slog.LevelDebug
 	// InfoLevel is the default logging priority.
-	InfoLevel Level = Level(slog.LevelInfo)
+	InfoLevel = slog.LevelInfo
 	// WarnLevel logs are more important than Info, but don't need individual
 	// human review.
-	WarnLevel Level = Level(slog.LevelWarn)
+	WarnLevel = slog.LevelWarn
 	// ErrorLevel logs are high-priority. If an application is running smoothly,
 	// it shouldn't generate any error-level logs.
-	ErrorLevel Level = Level(slog.LevelError)
+	ErrorLevel = slog.LevelError
 	// DPanicLevel logs are particularly important errors. In development the
 	// logger panics after writing the message.
-	DPanicLevel Level = Level(slog.LevelError + 4)
+	DPanicLevel = slog.LevelError + 4
 	// PanicLevel logs a message, then panics.
-	PanicLevel Level = 16
+	PanicLevel = 16
 	// FatalLevel logs a message, then calls os.Exit(1).
-	FatalLevel Level = 32
+	FatalLevel = 32
 )
 
 type Logger struct {
@@ -83,7 +80,7 @@ type LoggerConfig struct {
 	// ServiceName specifies the name of the service emitting logs.
 	ServiceName string
 	// MinLevel sets the minimum log level to be recorded.
-	MinLevel Level
+	MinLevel slog.Level
 
 	// Output specifies where logs should be written. If nil, defaults to os.Stdout.
 	Output io.Writer
@@ -108,7 +105,7 @@ func NewLogger(config *LoggerConfig) *Logger {
 	jsonHandler := slog.NewJSONHandler(output, &slog.HandlerOptions{
 		AddSource:   true,
 		ReplaceAttr: replacer,
-		Level:       slog.Level(config.MinLevel),
+		Level:       config.MinLevel,
 	})
 	instrumentedHandler := handlerWithSpanContext(
 		config.ProjectID,
@@ -356,7 +353,7 @@ func replacer(groups []string, a slog.Attr) slog.Attr {
 		level := a.Value.Any().(slog.Level)
 		// Map slog.Level string values to Cloud Logging LogSeverity
 		// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogSeverity
-		switch Level(level) {
+		switch level {
 		case DebugLevel:
 			a.Value = slog.StringValue("DEBUG")
 		case InfoLevel:
