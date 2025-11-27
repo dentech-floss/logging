@@ -7,7 +7,7 @@ The logger is also configured to support [Error Reporting](https://cloud.google.
 ## Install
 
 ```
-go get github.com/dentech-floss/logging@v0.3.1
+go get github.com/dentech-floss/logging@v0.3.2
 ```
 
 ## Usage
@@ -53,16 +53,17 @@ func (s *PatientGatewayServiceV1) FindAppointments(
 ) (*patient_gateway_service_v1.FindAppointmentsResponse, error) {
 
     // Ensure trace information + request is part of the log entries
-    logWithContext := s.logger.WithContext(ctx, logging.Proto("request", request))
+    log := s.logger.With(logging.Proto("request", request))
 
-    logWithContext.Info(
+    log.InfoContext(
+        ctx,
         "Something something...",
         logging.String("something", something),
     )
 
     startTimeLocal, err := datetime.ISO8601StringToTime(request.StartTime)
     if err != nil {
-        logWithContext.Warn("The start time shall be in ISO 8601 format", logging.Error(err))
+        log.WarnContext(ctx, "The start time shall be in ISO 8601 format", logging.Error(err))
         return &patient_gateway_service_v1.FindAppointmentsResponse{},
             status.Errorf(codes.InvalidArgument, "The start time shall be in ISO 8601 format")
     }
