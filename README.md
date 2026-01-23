@@ -70,3 +70,25 @@ func (s *PatientGatewayServiceV1) FindAppointments(
 }
 
 ```
+
+```go
+import (
+    "net/http"
+
+    "github.com/dentech-floss/logging/pkg/logging"
+    "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+)
+
+// Example of wrapping an HTTP client's Transport with NewLoggingTransport
+httpClient := &http.Client{}
+httpClient.Transport = otelhttp.NewTransport(
+    logging.NewLoggingTransport(
+        httpClient.Transport,
+        logger,
+        &logging.LoggingOptions{
+            DumpRequestFunc:  logging.DumpRequest,
+            DumpResponseFunc: logging.DumpResponse,
+        },
+    ),
+)
+```
