@@ -9,6 +9,11 @@ import (
 
 const (
 	logTypeValueExternalRequest = "external_request"
+
+	logFieldRequestDump       = "request"
+	logFieldResponseDump      = "response"
+	logFieldRequestDumpError  = "request_dump_error"
+	logFieldResponseDumpError = "response_dump_error"
 )
 
 type LoggingOptions struct {
@@ -102,7 +107,7 @@ func DumpRequest(
 	if req == nil {
 		loggerFields = append(
 			loggerFields,
-			String("request_dump_error", "Error dumping request: nil request"),
+			String(logFieldRequestDumpError, "Error dumping request: nil request"),
 		)
 
 		return loggerFields
@@ -112,14 +117,14 @@ func DumpRequest(
 	if err == nil {
 		loggerFields = append(
 			loggerFields,
-			String("request", string(reqDump)),
+			String(logFieldRequestDump, string(reqDump)),
 		)
 		return loggerFields
 	}
 
 	loggerFields = append(
 		loggerFields,
-		String("request_dump_error", fmt.Sprintf("Error dumping request: %v", err)),
+		String(logFieldRequestDumpError, fmt.Sprintf("Error dumping request: %v", err)),
 	)
 
 	return loggerFields
@@ -139,7 +144,7 @@ func DumpResponse(loggerFields []any, resp *http.Response) []any {
 	if resp == nil {
 		loggerFields = append(
 			loggerFields,
-			String("response_dump_error", "Error dumping response: nil response"),
+			String(logFieldResponseDumpError, "Error dumping response: nil response"),
 		)
 		return loggerFields
 	}
@@ -148,7 +153,7 @@ func DumpResponse(loggerFields []any, resp *http.Response) []any {
 	if err == nil {
 		loggerFields = append(
 			loggerFields,
-			String("response", string(respDump)),
+			String(logFieldResponseDump, string(respDump)),
 		)
 
 		return loggerFields
@@ -156,7 +161,7 @@ func DumpResponse(loggerFields []any, resp *http.Response) []any {
 
 	loggerFields = append(
 		loggerFields,
-		String("response_dump_error", fmt.Sprintf("Error dumping response: %v", err)),
+		String(logFieldResponseDumpError, fmt.Sprintf("Error dumping response: %v", err)),
 	)
 	return loggerFields
 }
