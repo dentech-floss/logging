@@ -85,31 +85,75 @@ func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, nil
 }
 
-// DumpRequest returns a string representation of an HTTP request,
-// including headers and body. If dumping fails, it returns an error message.
+// DumpRequest appends a string representation of an HTTP request to the provided loggerFields slice.
+// It includes both headers and body in the dump. If the request is nil or dumping fails, an error message
+// is appended instead. The function returns the updated loggerFields slice.
+//
+// Parameters:
+//   - loggerFields: a slice of fields to which the request dump or error will be appended.
+//   - req: the HTTP request to be dumped.
+//
+// Returns:
+//   - The updated loggerFields slice with the request dump or an error message.
 func DumpRequest(
+	loggerFields []any,
 	req *http.Request,
-) (string, error) {
+) []any {
 	if req == nil {
-		return "", fmt.Errorf("nil request")
+		loggerFields = append(
+			loggerFields,
+			String("request_dump_error", "Error dumping request: nil request"),
+		)
 	}
+
 	reqDump, err := httputil.DumpRequestOut(req, true)
 	if err == nil {
-		return string(reqDump), nil
+		loggerFields = append(
+			loggerFields,
+			String("request", string(reqDump)),
+		)
+		return loggerFields
 	}
 
-	return "", fmt.Errorf("failed dumping request: %w", err)
+	loggerFields = append(
+		loggerFields,
+		String("request_dump_error", fmt.Sprintf("Error dumping request: %v", err)),
+	)
+
+	return loggerFields
 }
 
-// DumpResponse returns a string representation of an HTTP response,
-// including headers and body. If dumping fails, it returns an error message.
-func DumpResponse(resp *http.Response) (string, error) {
+// DumpResponse appends a string representation of an HTTP response to the provided loggerFields slice.
+// It includes both headers and body in the dump. If the response is nil or dumping fails, an error message
+// is appended instead. The function returns the updated loggerFields slice.
+//
+// Parameters:
+//   - loggerFields: a slice of fields to which the response dump or error will be appended.
+//   - resp: the HTTP response to be dumped.
+//
+// Returns:
+//   - The updated loggerFields slice with the response dump or an error message.
+func DumpResponse(loggerFields []any, resp *http.Response) []any {
 	if resp == nil {
-		return "", fmt.Errorf("nil response")
+		loggerFields = append(
+			loggerFields,
+			String("response_dump_error", "Error dumping response: nil request"),
+		)
+		return loggerFields
 	}
+
 	respDump, err := httputil.DumpResponse(resp, true)
 	if err == nil {
-		return string(respDump), nil
+		loggerFields = append(
+			loggerFields,
+			String("response", string(respDump)),
+		)
+
+		return loggerFields
 	}
-	return "", fmt.Errorf("failed dumping response: %w", err)
+	loggerFields = append(
+		loggerFields,
+		String("response_dump_error", fmt.Sprintf("Error dumping response: %v", err)),
+	)
+	return loggerFields
 }
