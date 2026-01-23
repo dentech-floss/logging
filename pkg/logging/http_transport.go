@@ -104,6 +104,8 @@ func DumpRequest(
 			loggerFields,
 			String("request_dump_error", "Error dumping request: nil request"),
 		)
+
+		return loggerFields
 	}
 
 	reqDump, err := httputil.DumpRequestOut(req, true)
@@ -137,7 +139,7 @@ func DumpResponse(loggerFields []any, resp *http.Response) []any {
 	if resp == nil {
 		loggerFields = append(
 			loggerFields,
-			String("response_dump_error", "Error dumping response: nil request"),
+			String("response_dump_error", "Error dumping response: nil response"),
 		)
 		return loggerFields
 	}
@@ -151,6 +153,7 @@ func DumpResponse(loggerFields []any, resp *http.Response) []any {
 
 		return loggerFields
 	}
+
 	loggerFields = append(
 		loggerFields,
 		String("response_dump_error", fmt.Sprintf("Error dumping response: %v", err)),
