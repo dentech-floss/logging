@@ -1,6 +1,6 @@
 module github.com/dentech-floss/logging
 
-go 1.24.0
+go 1.26
 
 require (
 	github.com/ThreeDotsLabs/watermill v1.5.1
@@ -17,5 +17,5 @@ require (
 	github.com/lithammer/shortuuid/v3 v3.0.7 // indirect
 	github.com/oklog/ulid v1.3.1 // indirect
 	go.opentelemetry.io/otel v1.40.0 // indirect
-	golang.org/x/text v0.20.0 // indirect
+	golang.org/x/text v0.34.0 // indirect
 )
