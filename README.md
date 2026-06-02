@@ -7,7 +7,7 @@ The logger is also configured to support [Error Reporting](https://cloud.google.
 ## Install
 
 ```
-go get github.com/dentech-floss/logging@v0.3.4
+go get github.com/dentech-floss/logging@v0.3.6
 ```
 
 ## Usage
@@ -32,7 +32,6 @@ func main() {
             MinLevel:    logging.InfoLevel,
         },
     )
-    defer logger.Sync() // flushes buffer, if any
 
     patientGatewayServiceV1 := service.NewPatientGatewayServiceV1(logger) // inject it
 }
@@ -42,6 +41,8 @@ func main() {
 package example
 
 import (
+    "context"
+
     "github.com/dentech-floss/logging/pkg/logging"
 
     patient_gateway_service_v1 "go.buf.build/dentechse/go-grpc-gateway-openapiv2/dentechse/patient-api-gateway/api/patient/v1"
@@ -55,6 +56,7 @@ func (s *PatientGatewayServiceV1) FindAppointments(
     // Ensure trace information + request is part of the log entries
     log := s.logger.With(logging.Proto("request", request))
 
+    something := "some_value"
     log.InfoContext(
         ctx,
         "Something something...",
@@ -67,6 +69,10 @@ func (s *PatientGatewayServiceV1) FindAppointments(
         return &patient_gateway_service_v1.FindAppointmentsResponse{},
             status.Errorf(codes.InvalidArgument, "The start time shall be in ISO 8601 format")
     }
+
+    log.InfoContext(ctx, "Found appointments", logging.Any("start_time_local", startTimeLocal))
+
+    return &patient_gateway_service_v1.FindAppointmentsResponse{}, nil
 }
 
 ```
