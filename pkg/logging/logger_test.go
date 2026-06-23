@@ -39,3 +39,35 @@ func TestLogger(t *testing.T) {
 		t.Errorf("Expected trace ID not found or incorrect, got: %v", traceID)
 	}
 }
+
+func TestNoticeLevel(t *testing.T) {
+	var buf bytes.Buffer
+
+	logger := logging.NewLogger(&logging.LoggerConfig{
+		ProjectID:   "test-project",
+		ServiceName: "test-service",
+		MinLevel:    logging.DebugLevel,
+
+		Output: &buf,
+	})
+
+	logger.Notice("This is a notice message", logging.String("key", "value"))
+
+	var logMap map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &logMap); err != nil {
+		t.Fatalf("Failed to parse JSON log: %v", err)
+	}
+
+	if severity, ok := logMap["severity"]; !ok || severity != "NOTICE" {
+		t.Errorf("Expected severity NOTICE, got: %v", severity)
+	}
+
+	if msg, ok := logMap["message"]; !ok || msg != "This is a notice message" {
+		t.Errorf("Expected notice message, got: %v", msg)
+	}
+
+	// Notice is below Warn, so it must not include a stacktrace.
+	if _, ok := logMap["stacktrace"]; ok {
+		t.Errorf("Did not expect a stacktrace for NOTICE level")
+	}
+}
