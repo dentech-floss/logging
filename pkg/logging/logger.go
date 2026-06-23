@@ -50,6 +50,9 @@ const (
 	DebugLevel = slog.LevelDebug
 	// InfoLevel is the default logging priority.
 	InfoLevel = slog.LevelInfo
+	// NoticeLevel is for normal but significant events, more important than Info
+	// but not a warning. It maps to Cloud Logging's NOTICE severity.
+	NoticeLevel = slog.LevelInfo + 2
 	// WarnLevel logs are more important than Info, but don't need individual
 	// human review.
 	WarnLevel = slog.LevelWarn
@@ -158,6 +161,31 @@ func (l *Logger) With(args ...any) *Logger {
 	return &Logger{Logger: log}
 }
 
+// NoticeContext logs at [NoticeLevel] with the given context.
+//
+// Parameters:
+//
+//	ctx - the context for logging
+//	msg - the message to log
+//	args - additional arguments for the log message
+func (l *Logger) NoticeContext(
+	ctx context.Context,
+	msg string,
+	args ...any,
+) {
+	l.Log(ctx, NoticeLevel, msg, args...)
+}
+
+// Notice logs at [NoticeLevel].
+//
+// Parameters:
+//
+//	msg - the message to log
+//	args - additional arguments for the log message
+func (l *Logger) Notice(msg string, args ...any) {
+	l.NoticeContext(context.Background(), msg, args...)
+}
+
 // PanicContext logs at [PanicLevel] with the given context and then panics with the given message.
 //
 // Parameters:
@@ -236,6 +264,13 @@ func (lc *LoggerWithContext) Info(
 	args ...any,
 ) {
 	lc.l.InfoContext(lc.ctx, msg, args...)
+}
+
+func (lc *LoggerWithContext) Notice(
+	msg string,
+	args ...any,
+) {
+	lc.l.NoticeContext(lc.ctx, msg, args...)
 }
 
 func (lc *LoggerWithContext) Warn(
@@ -358,6 +393,8 @@ func replacer(groups []string, a slog.Attr) slog.Attr {
 			a.Value = slog.StringValue("DEBUG")
 		case InfoLevel:
 			a.Value = slog.StringValue("INFO")
+		case NoticeLevel:
+			a.Value = slog.StringValue("NOTICE")
 		case WarnLevel:
 			a.Value = slog.StringValue("WARNING")
 		case ErrorLevel, DPanicLevel:
