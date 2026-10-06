@@ -41,7 +41,7 @@ func NewLoggingTransport(
 
 func (lt *LoggingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	ctx := req.Context()
-	log := LoggerFromContext(ctx)
+	log := storedLogger(ctx)
 	if log == nil {
 		log = lt.l
 	}
