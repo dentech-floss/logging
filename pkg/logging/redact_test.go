@@ -1,15 +1,19 @@
 package logging_test
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 
 	"github.com/dentech-floss/logging/pkg/logging"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 	"google.golang.org/protobuf/types/dynamicpb"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 // patientDescriptor builds the equivalent of:
@@ -146,16 +150,16 @@ func attrJSON(t *testing.T, v any) map[string]any {
 	return m
 }
 
-func TestRedactedProto(t *testing.T) {
+func TestProtoRedactsMarkedFields(t *testing.T) {
 	patient := newPatient(t)
 
-	attr := logging.RedactedProto("patient", patient)
+	attr := logging.Proto("patient", patient)
 
 	if attr.Key != "patient" {
 		t.Errorf("Expected key patient, got: %s", attr.Key)
 	}
 
-	got := attrJSON(t, attr.Value.Any())
+	got := attrJSON(t, attr.Value.Resolve().Any())
 
 	if v := got["id"]; v != "42" {
 		t.Errorf("Expected id=42, got: %v", v)
@@ -192,18 +196,71 @@ func TestRedactedProto(t *testing.T) {
 	}
 }
 
-func TestRedactedProtoDoesNotModifyMessage(t *testing.T) {
+func TestProtoDoesNotModifyMessage(t *testing.T) {
 	patient := newPatient(t)
 	before := proto.Clone(patient)
 
-	_ = logging.RedactedProto("patient", patient)
+	_ = logging.Proto("patient", patient).Value.Resolve()
 
 	if !proto.Equal(before, patient) {
 		t.Error("Expected the original message to be unchanged")
 	}
 }
 
-func TestRedactedProtoNil(t *testing.T) {
-	// Must not panic
-	_ = logging.RedactedProto("patient", nil)
+func TestProtoNil(t *testing.T) {
+	var typedNil *wrapperspb.StringValue
+
+	tests := []struct {
+		name  string
+		value proto.Message
+	}{
+		{name: "nil interface", value: nil},
+		{name: "typed nil", value: typedNil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			want, err := protojson.Marshal(tt.value)
+			if err != nil {
+				t.Fatalf("Unexpected error: %v", err)
+			}
+
+			got := logging.Proto("request", tt.value).Value.Resolve().Any()
+
+			if raw, ok := got.(json.RawMessage); !ok || string(raw) != string(want) {
+				t.Errorf("Expected %s, got: %v", want, got)
+			}
+		})
+	}
+}
+
+func TestProtoIsSerialisedOnceWhenLogged(t *testing.T) {
+	var buf bytes.Buffer
+	logger := newBufferLogger(&buf)
+
+	msg := wrapperspb.String("before")
+	ctx := logging.ContextWithFields(context.Background(), logging.Proto("request", msg))
+
+	// Not serialised yet, so the logged value is the message as it is when first logged
+	msg.Value = "first log"
+	logger.InfoContext(ctx, "first")
+
+	// Serialised once: later entries reuse the first result
+	msg.Value = "second log"
+	logger.InfoContext(ctx, "second")
+
+	lines := bytes.Split(bytes.TrimSpace(buf.Bytes()), []byte("\n"))
+	if len(lines) != 2 {
+		t.Fatalf("Expected 2 log lines, got: %d", len(lines))
+	}
+
+	for i, line := range lines {
+		var logMap map[string]any
+		if err := json.Unmarshal(line, &logMap); err != nil {
+			t.Fatalf("Failed to parse JSON log: %v", err)
+		}
+		if v := logMap["request"]; v != "first log" {
+			t.Errorf("Line %d: expected request=first log, got: %v", i+1, v)
+		}
+	}
 }

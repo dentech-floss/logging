@@ -29,7 +29,6 @@ package logging
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -37,12 +36,11 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
-	"sync/atomic"
+	"sync"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
 
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -126,44 +124,31 @@ func NewLogger(config *LoggerConfig) *Logger {
 	}
 }
 
-var defaultLogger atomic.Pointer[Logger]
+// fallbackLogger is returned by LoggerFromContext when the context holds no
+// logger, so a forgotten ContextWithLogger can't cause a nil pointer panic.
+var fallbackLogger = sync.OnceValue(func() *Logger {
+	return NewLogger(&LoggerConfig{MinLevel: InfoLevel})
+})
 
-func init() {
-	defaultLogger.Store(NewLogger(&LoggerConfig{MinLevel: InfoLevel}))
-}
-
-// SetDefault makes logger the one returned by Default and by LoggerFromContext
-// when the context holds no logger. Call it in main with the service's logger.
-// A nil logger is ignored.
-func SetDefault(logger *Logger) {
-	if logger != nil {
-		defaultLogger.Store(logger)
-	}
-}
-
-// Default returns the logger set with SetDefault. Before SetDefault is called it
-// is a logger writing JSON to stdout at InfoLevel. It is never nil.
-func Default() *Logger {
-	return defaultLogger.Load()
-}
-
-// Deprecated: store log fields with WithFields instead and log with an injected
-// logger. Carrying the logger in the context is easy to get wrong.
+// Deprecated: log with an injected logger and store request fields with
+// ContextWithFields instead. Carrying the logger in the context is easy to get
+// wrong.
 func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
 	return context.WithValue(ctx, loggerContextKey{}, logger)
 }
 
-// LoggerFromContext returns the logger stored with ContextWithLogger, or Default
-// if there is none. It never returns nil.
+// LoggerFromContext returns the logger stored with ContextWithLogger. If there
+// is none it returns a fallback logger writing JSON to stdout at InfoLevel, so
+// it never returns nil.
 //
 // Deprecated: log with an injected logger and pass ctx to the *Context methods
-// instead. Fields stored with WithFields are added to those log entries.
+// instead. Fields stored with ContextWithFields are added to those log entries.
 func LoggerFromContext(ctx context.Context) *Logger {
 	if logger := storedLogger(ctx); logger != nil {
 		return logger
 	}
 
-	return Default()
+	return fallbackLogger()
 }
 
 // storedLogger returns the logger stored with ContextWithLogger, or nil.
@@ -350,7 +335,7 @@ func (t *spanContextLogHandler) Enabled(ctx context.Context, level slog.Level) b
 // Handle overrides slog.Handler's Handle method. This adds attributes from the
 // span context to the slog.Record.
 func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) error {
-	attrs := LoggerFieldsFromContext(ctx)
+	attrs := fieldsFromContext(ctx)
 	if len(attrs) != 0 {
 		record.AddAttrs(attrs...)
 	}
@@ -394,40 +379,26 @@ func (t *spanContextLogHandler) WithGroup(name string) slog.Handler {
 	}
 }
 
-// WithFields returns a context whose log entries get attrs added, on top of any
-// fields already stored in ctx. The fields are added to every entry logged with
-// the returned context through a *Context method, by any logger from this package.
-func WithFields(
+// ContextWithFields returns a context whose log entries get attrs added, on top
+// of any fields already stored in ctx. The fields are added to every entry
+// logged with the returned context through a *Context method, by any logger
+// from this package.
+func ContextWithFields(
 	ctx context.Context,
 	attrs ...slog.Attr,
-) context.Context {
-	return ContextWithLoggerFields(
-		ctx,
-		slices.Concat(LoggerFieldsFromContext(ctx), attrs),
-	)
-}
-
-// ContextWithLoggerFields stores attrs in ctx, replacing any fields already
-// there. Use WithFields to add to the existing fields instead.
-func ContextWithLoggerFields(
-	ctx context.Context,
-	attrs []slog.Attr,
 ) context.Context {
 	return context.WithValue(
 		ctx,
 		loggerFieldsContextKey{},
-		attrs,
+		slices.Concat(fieldsFromContext(ctx), attrs),
 	)
 }
 
-func LoggerFieldsFromContext(
-	ctx context.Context,
-) []slog.Attr {
-	var loggerFields []slog.Attr
-	if v := ctx.Value(loggerFieldsContextKey{}); v != nil {
-		loggerFields = append(loggerFields, v.([]slog.Attr)...)
-	}
-	return loggerFields
+// fieldsFromContext returns the fields stored with ContextWithFields. The
+// returned slice must not be modified.
+func fieldsFromContext(ctx context.Context) []slog.Attr {
+	fields, _ := ctx.Value(loggerFieldsContextKey{}).([]slog.Attr)
+	return fields
 }
 
 func replacer(groups []string, a slog.Attr) slog.Attr {
@@ -634,13 +605,24 @@ func ProtoField(
 	return Proto(key, value)
 }
 
+// Proto logs a protobuf message as JSON. Fields marked with
+// [debug_redact = true] in the .proto schema are left out, also in nested
+// messages, lists and maps. The message passed in is not modified.
+//
+// The message is serialised when the first entry using the field is written,
+// and only once. If nothing is logged, it is never serialised.
 func Proto(
 	key string,
 	value proto.Message,
 ) slog.Attr {
-	bytes, err := protojson.Marshal(value)
-	if err != nil {
-		return Error(err) // what else to do?
-	}
-	return slog.Any(key, json.RawMessage(bytes))
+	return slog.Any(key, protoValue(sync.OnceValue(func() slog.Value {
+		return redactedJSON(value)
+	})))
+}
+
+// protoValue defers serialising a message until it's logged.
+type protoValue func() slog.Value
+
+func (p protoValue) LogValue() slog.Value {
+	return p()
 }

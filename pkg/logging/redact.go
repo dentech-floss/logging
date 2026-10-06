@@ -1,30 +1,31 @@
 package logging
 
 import (
+	"encoding/json"
+	"fmt"
 	"log/slog"
 
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
-// RedactedProto works like Proto, but leaves out every field marked with
-// [debug_redact = true] in the .proto schema, also in nested messages, lists
-// and maps. The message passed in is not modified.
-//
-// Fields inside google.protobuf.Any values are not inspected.
-func RedactedProto(
-	key string,
-	value proto.Message,
-) slog.Attr {
-	if value == nil {
-		return Proto(key, value)
+// redactedJSON serialises m to JSON without the fields marked with
+// [debug_redact = true]. Fields inside google.protobuf.Any values are not
+// inspected.
+func redactedJSON(m proto.Message) slog.Value {
+	if m != nil && m.ProtoReflect().IsValid() {
+		redacted := proto.Clone(m)
+		redact(redacted.ProtoReflect())
+		m = redacted
 	}
 
-	redacted := proto.Clone(value)
-	redact(redacted.ProtoReflect())
-
-	return Proto(key, redacted)
+	bytes, err := protojson.Marshal(m)
+	if err != nil {
+		return slog.StringValue(fmt.Sprintf("<proto marshal error: %v>", err))
+	}
+	return slog.AnyValue(json.RawMessage(bytes))
 }
 
 func redact(m protoreflect.Message) {

@@ -113,10 +113,6 @@ func TestLoggerFromContextNeverReturnsNil(t *testing.T) {
 			if logger == nil {
 				t.Fatal("Expected a logger, got nil")
 			}
-			if logger != logging.Default() {
-				t.Errorf("Expected the default logger")
-			}
-
 			// Must not panic
 			logger.InfoContext(tt.ctx, "This is a test log message")
 		})
@@ -134,40 +130,12 @@ func TestLoggerFromContextReturnsStoredLogger(t *testing.T) {
 	}
 }
 
-func TestSetDefault(t *testing.T) {
-	previous := logging.Default()
-	t.Cleanup(func() { logging.SetDefault(previous) })
-
-	var buf bytes.Buffer
-	logger := newBufferLogger(&buf)
-	logging.SetDefault(logger)
-
-	if logging.Default() != logger {
-		t.Fatal("Expected Default to return the logger passed to SetDefault")
-	}
-
-	logging.SetDefault(nil)
-	if logging.Default() != logger {
-		t.Fatal("Expected SetDefault(nil) to be ignored")
-	}
-
-	logging.LoggerFromContext(context.Background()).InfoContext(
-		context.Background(),
-		"This is a test log message",
-	)
-
-	logMap := parseLogEntry(t, &buf)
-	if msg := logMap["message"]; msg != "This is a test log message" {
-		t.Errorf("Expected the message to be written by the default logger, got: %v", msg)
-	}
-}
-
-func TestWithFields(t *testing.T) {
+func TestContextWithFields(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newBufferLogger(&buf)
 
-	ctx := logging.WithFields(context.Background(), logging.String("first", "1"))
-	ctx = logging.WithFields(ctx, logging.String("second", "2"), logging.Int("third", 3))
+	ctx := logging.ContextWithFields(context.Background(), logging.String("first", "1"))
+	ctx = logging.ContextWithFields(ctx, logging.String("second", "2"), logging.Int("third", 3))
 
 	logger.InfoContext(ctx, "This is a test log message")
 
@@ -183,13 +151,13 @@ func TestWithFields(t *testing.T) {
 	}
 }
 
-func TestWithFieldsDoesNotLeakBetweenSiblings(t *testing.T) {
+func TestContextWithFieldsDoesNotLeakBetweenSiblings(t *testing.T) {
 	var buf bytes.Buffer
 	logger := newBufferLogger(&buf)
 
-	parent := logging.WithFields(context.Background(), logging.String("parent", "p"))
-	_ = logging.WithFields(parent, logging.String("sibling", "a"))
-	ctx := logging.WithFields(parent, logging.String("other", "b"))
+	parent := logging.ContextWithFields(context.Background(), logging.String("parent", "p"))
+	_ = logging.ContextWithFields(parent, logging.String("sibling", "a"))
+	ctx := logging.ContextWithFields(parent, logging.String("other", "b"))
 
 	logger.InfoContext(ctx, "This is a test log message")
 

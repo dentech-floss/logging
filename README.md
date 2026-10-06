@@ -12,7 +12,7 @@ go get github.com/dentech-floss/logging@v0.3.7
 
 ## Usage
 
-Create the logger once in `main`, make it the default and inject it where it's needed:
+Create the logger once in `main` and inject it where it's needed:
 
 ```go
 package example
@@ -34,7 +34,6 @@ func main() {
             MinLevel:    logging.InfoLevel,
         },
     )
-    logging.SetDefault(logger) // used by LoggerFromContext when the context holds no logger
 
     patientGatewayServiceV1 := service.NewPatientGatewayServiceV1(logger) // inject it
 }
@@ -44,8 +43,8 @@ func main() {
 
 Log with the injected logger and always pass `ctx` to the `*Context` methods (`InfoContext`, `ErrorContext`, ...).
 Fields that should be on every log entry of a request, such as the caller, go into the context with
-`logging.WithFields`. Every entry logged with that context includes them, also in helpers further down the call
-chain, and you don't have to pass a logger around:
+`logging.ContextWithFields`. Every entry logged with that context includes them, also in helpers further down the
+call chain, and you don't have to pass a logger around:
 
 ```go
 package example
@@ -69,7 +68,7 @@ func (s *PatientGatewayServiceV1) FindAppointments(
     }
 
     // Added to every log entry below, and in s.findAppointments, that uses this ctx
-    ctx = logging.WithFields(ctx, logging.String("caller", caller.Name))
+    ctx = logging.ContextWithFields(ctx, logging.String("caller", caller.Name))
 
     startTimeLocal, err := datetime.ISO8601StringToTime(request.StartTime)
     if err != nil {
@@ -85,62 +84,42 @@ func (s *PatientGatewayServiceV1) findAppointments(
     ctx context.Context,
     startTimeLocal time.Time,
 ) (*patient_gateway_service_v1.FindAppointmentsResponse, error) {
-    // Includes "caller" (and "grpc.method" with the interceptor below)
+    // Includes "caller"
     s.logger.InfoContext(ctx, "Finding appointments", logging.Any("start_time_local", startTimeLocal))
 
     return &patient_gateway_service_v1.FindAppointmentsResponse{}, nil
 }
 ```
 
-`WithFields` adds to the fields already in the context. Only fields added with `WithFields` (or
-`ContextWithLoggerFields`) are logged. The logger never logs anything else it finds in the context, apart from the
-OpenTelemetry trace and span IDs.
+`ContextWithFields` adds to the fields already in the context. Only fields added with `ContextWithFields` are
+logged. The logger never logs anything else it finds in the context, apart from the OpenTelemetry trace and span
+IDs.
 
-### gRPC interceptor
+For gRPC services, [dentech-floss/server](https://github.com/dentech-floss/server) can add the method and the
+request to the context of every call, so handlers don't have to. See its `WithRequestLogFields` option.
 
-`grpclogging.UnaryServerInterceptor` adds `grpc.method` to the context of every unary call, so it's on every entry
-logged during the call:
+### Logging protobuf messages
 
-```go
-import (
-    "github.com/dentech-floss/logging/pkg/logging/grpclogging"
-    "github.com/dentech-floss/server/pkg/server"
-    "google.golang.org/grpc"
-)
-
-_server := server.NewServer(&server.ServerConfig{
-    Port: port,
-    GrpcServerOptions: []grpc.ServerOption{
-        grpc.ChainUnaryInterceptor(grpclogging.UnaryServerInterceptor()),
-    },
-})
-```
-
-The request is **not** logged by default. To add it as the `request` field, pass one of these options:
-
-| Option | Logs |
-|---|---|
-| `WithRedactedRequest()` | The request, without the fields marked as sensitive in the `.proto` schema. **Use this one.** See [Redacting sensitive fields](#redacting-sensitive-fields). |
-| `WithRequestFilter(filter)` | Whatever your filter returns, or nothing. Use it to skip some methods entirely. |
-| `WithRequest()` | The full request, unredacted. Only for services whose requests never contain sensitive data. |
+`logging.Proto` logs a protobuf message as JSON:
 
 ```go
-grpclogging.UnaryServerInterceptor(grpclogging.WithRedactedRequest())
+s.logger.InfoContext(ctx, "Publishing patient event", logging.Proto("event", event))
 ```
 
-> **Warning:** `WithRequest` writes the full request, in plain text, to every entry logged during the call. Don't
-> use it in services whose requests contain personal data (e.g. patient information), payment details or secrets.
-> Use `WithRedactedRequest` instead.
+The message is serialised when the first entry using the field is written, and only once. If nothing is logged
+(for example a request field in the context of a call that logs nothing), it's never serialised.
 
 ### Redacting sensitive fields
 
 Personal data, health information and secrets must not end up in logs. Instead of guessing from what a value looks
 like (regexes for emails or personal numbers miss formats, and can't recognise names or free text at all), you
-mark the sensitive fields where they are defined: in the `.proto` schema. The logger leaves those fields out.
+mark the sensitive fields where they are defined: in the `.proto` schema. `logging.Proto` always leaves those
+fields out. There's nothing to turn on in the code.
 
 #### 1. Mark the fields in the `.proto` file
 
-Add the standard `debug_redact` option to every sensitive field. It's built into protobuf (buf, or protoc 22 or newer), so no import is needed:
+Add the standard `debug_redact` option to every sensitive field. It's built into protobuf (buf, or protoc 22 or
+newer), so no import is needed:
 
 ```proto
 message Patient {
@@ -160,8 +139,10 @@ message Address {
 }
 ```
 
-Then regenerate the Go code (e.g. `buf generate`, or push the schema to buf.build and update the package). The
-option is stored in the generated code, so nothing else is needed.
+#### 2. Regenerate the Go code
+
+Run `buf generate`, or push the schema to buf.build and update the package. The option is stored in the generated
+code, so every `logging.Proto` call that logs these messages leaves the marked fields out from then on.
 
 What to mark:
 
@@ -173,44 +154,9 @@ What to mark:
 
 You can mark a whole message field (e.g. `Patient patient = 1 [debug_redact = true];`) to leave all of it out.
 
-#### 2. Log with redaction
-
-For gRPC requests, register the interceptor with `WithRedactedRequest()`:
-
-```go
-_server := server.NewServer(&server.ServerConfig{
-    Port: port,
-    GrpcServerOptions: []grpc.ServerOption{
-        grpc.ChainUnaryInterceptor(
-            grpclogging.UnaryServerInterceptor(grpclogging.WithRedactedRequest()),
-        ),
-    },
-})
-```
-
-Anywhere else you log a protobuf message (Pub/Sub events, responses, calls to other services), use
-`logging.RedactedProto` instead of `logging.Proto`:
-
-```go
-s.logger.InfoContext(ctx, "Publishing patient event", logging.RedactedProto("event", event))
-```
-
-To skip some methods entirely and redact the rest, combine it with a filter:
-
-```go
-grpclogging.UnaryServerInterceptor(grpclogging.WithRequestFilter(
-    func(info *grpc.UnaryServerInfo, req proto.Message) (slog.Attr, bool) {
-        if strings.HasPrefix(info.FullMethod, "/api.payment.v1.") {
-            return slog.Attr{}, false // never log payment requests
-        }
-        return logging.RedactedProto("request", req), true
-    },
-))
-```
-
 #### What the output looks like
 
-With the `Patient` message above, this request:
+With the `Patient` message above, this message:
 
 ```json
 {"id": "42", "personalNumber": "199001011234", "name": "Anna Andersson", "address": {"street": "Storgatan 1", "postalCode": "11122", "city": "Stockholm"}}
@@ -231,16 +177,22 @@ empty or redacted.
 - Only marked fields are removed. When you add a new field to a message, decide whether it needs
   `debug_redact = true`. Make it part of reviewing `.proto` changes.
 - Fields inside `google.protobuf.Any` values are not inspected. Don't log messages that carry sensitive data in an
-  `Any`, or skip them with a filter.
-- `logging.Proto` and `WithRequest` ignore `debug_redact`. Use `logging.RedactedProto` and `WithRedactedRequest`.
+  `Any`.
+- Redaction only applies to `logging.Proto`. A sensitive value logged with `logging.String`, `logging.Any` and so
+  on is logged as is.
 
 ### Upgrading from v0.3.x
 
-- `LoggerFromContext` no longer returns `nil`. When the context holds no logger it returns `logging.Default()`,
-  the logger passed to `SetDefault` (or, if `SetDefault` was never called, a JSON logger on stdout at Info level).
-  Code that checks the result for `nil` will no longer take that branch. Call `SetDefault` in `main` so the
-  fallback has your service's config.
-- `ContextWithLogger` and `LoggerFromContext` are deprecated, and staticcheck (SA1019) and IDEs will flag them.
+v0.4.0 has a few breaking changes. Most services only need to change a few lines in `main` and in code that logs
+protobuf messages.
+
+- **`logging.Proto` leaves out `debug_redact` fields and serialises lazily.** No code change is needed. If a
+  message can't be serialised, the field now holds an error text instead of being replaced by an `error` field.
+- **`ContextWithLoggerFields` and `LoggerFieldsFromContext` are removed.** Use `ContextWithFields`, which adds to
+  the fields already in the context instead of replacing them.
+- **`LoggerFromContext` no longer returns `nil`.** When the context holds no logger, it returns a fallback logger
+  writing JSON to stdout at Info level. Code that checks the result for `nil` won't take that branch anymore.
+- **`ContextWithLogger` and `LoggerFromContext` are deprecated**, and staticcheck (SA1019) and IDEs will flag them.
   They still work. Migrate when convenient:
 
   ```go
@@ -252,7 +204,7 @@ empty or redacted.
   log.ErrorContext(ctx, "Something failed", logging.Error(err))
 
   // After
-  ctx = logging.WithFields(ctx, logging.String("caller", caller.Name))
+  ctx = logging.ContextWithFields(ctx, logging.String("caller", caller.Name))
   ...
   s.logger.ErrorContext(ctx, "Something failed", logging.Error(err))
   ```
