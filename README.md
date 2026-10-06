@@ -116,26 +116,123 @@ _server := server.NewServer(&server.ServerConfig{
 })
 ```
 
-The request is **not** logged by default. To add it as the `request` field, pass an option:
+The request is **not** logged by default. To add it as the `request` field, pass one of these options:
+
+| Option | Logs |
+|---|---|
+| `WithRedactedRequest()` | The request, without the fields marked as sensitive in the `.proto` schema. **Use this one.** See [Redacting sensitive fields](#redacting-sensitive-fields). |
+| `WithRequestFilter(filter)` | Whatever your filter returns, or nothing. Use it to skip some methods entirely. |
+| `WithRequest()` | The full request, unredacted. Only for services whose requests never contain sensitive data. |
 
 ```go
-// The full request, on every call
-grpclogging.UnaryServerInterceptor(grpclogging.WithRequest())
+grpclogging.UnaryServerInterceptor(grpclogging.WithRedactedRequest())
+```
 
-// Decide per call: skip it, or log a redacted version
+> **Warning:** `WithRequest` writes the full request, in plain text, to every entry logged during the call. Don't
+> use it in services whose requests contain personal data (e.g. patient information), payment details or secrets.
+> Use `WithRedactedRequest` instead.
+
+### Redacting sensitive fields
+
+Personal data, health information and secrets must not end up in logs. Instead of guessing from what a value looks
+like (regexes for emails or personal numbers miss formats, and can't recognise names or free text at all), you
+mark the sensitive fields where they are defined: in the `.proto` schema. The logger leaves those fields out.
+
+#### 1. Mark the fields in the `.proto` file
+
+Add the standard `debug_redact` option to every sensitive field. It's built into protobuf (buf, or protoc 22 or newer), so no import is needed:
+
+```proto
+message Patient {
+  string id = 1;
+  string personal_number = 2 [debug_redact = true];
+  string name = 3 [debug_redact = true];
+  string email = 4 [debug_redact = true];
+  string phone = 5 [debug_redact = true];
+  Address address = 6;
+  string notes = 7 [debug_redact = true]; // free text can contain anything
+}
+
+message Address {
+  string street = 1 [debug_redact = true];
+  string postal_code = 2;
+  string city = 3;
+}
+```
+
+Then regenerate the Go code (e.g. `buf generate`, or push the schema to buf.build and update the package). The
+option is stored in the generated code, so nothing else is needed.
+
+What to mark:
+
+- Identifiers for a person: personal number (personnummer, samordningsnummer), name, email, phone, street address,
+  date of birth.
+- Health information: diagnoses, treatments tied to a person, symptoms.
+- Free-text fields such as notes, comments and messages. They can contain any of the above.
+- Secrets: passwords, tokens, API keys, card numbers.
+
+You can mark a whole message field (e.g. `Patient patient = 1 [debug_redact = true];`) to leave all of it out.
+
+#### 2. Log with redaction
+
+For gRPC requests, register the interceptor with `WithRedactedRequest()`:
+
+```go
+_server := server.NewServer(&server.ServerConfig{
+    Port: port,
+    GrpcServerOptions: []grpc.ServerOption{
+        grpc.ChainUnaryInterceptor(
+            grpclogging.UnaryServerInterceptor(grpclogging.WithRedactedRequest()),
+        ),
+    },
+})
+```
+
+Anywhere else you log a protobuf message (Pub/Sub events, responses, calls to other services), use
+`logging.RedactedProto` instead of `logging.Proto`:
+
+```go
+s.logger.InfoContext(ctx, "Publishing patient event", logging.RedactedProto("event", event))
+```
+
+To skip some methods entirely and redact the rest, combine it with a filter:
+
+```go
 grpclogging.UnaryServerInterceptor(grpclogging.WithRequestFilter(
     func(info *grpc.UnaryServerInfo, req proto.Message) (slog.Attr, bool) {
         if strings.HasPrefix(info.FullMethod, "/api.payment.v1.") {
             return slog.Attr{}, false // never log payment requests
         }
-        return logging.Proto("request", req), true
+        return logging.RedactedProto("request", req), true
     },
 ))
 ```
 
-> **Warning:** `WithRequest` writes the full request, in plain text, to every entry logged during the call. Don't
-> use it in services whose requests contain personal data (e.g. patient information), payment details or secrets.
-> Use `WithRequestFilter` to skip or redact those requests instead.
+#### What the output looks like
+
+With the `Patient` message above, this request:
+
+```json
+{"id": "42", "personalNumber": "199001011234", "name": "Anna Andersson", "address": {"street": "Storgatan 1", "postalCode": "11122", "city": "Stockholm"}}
+```
+
+is logged as:
+
+```json
+{"id": "42", "address": {"postalCode": "11122", "city": "Stockholm"}}
+```
+
+Redacted fields are left out, not replaced with a placeholder. A missing field in the log means it was either
+empty or redacted.
+
+#### Good to know
+
+- Redaction works on nested messages, lists and maps at any depth. The message you pass in is not modified.
+- Only marked fields are removed. When you add a new field to a message, decide whether it needs
+  `debug_redact = true`. Make it part of reviewing `.proto` changes.
+- Fields inside `google.protobuf.Any` values are not inspected. Don't log messages that carry sensitive data in an
+  `Any`, or skip them with a filter.
+- `logging.Proto` and `WithRequest` ignore `debug_redact`. Use `logging.RedactedProto` and `WithRedactedRequest`.
 
 ### Upgrading from v0.3.x
 

@@ -74,6 +74,18 @@ func TestUnaryServerInterceptorWithRequest(t *testing.T) {
 	}
 }
 
+func TestUnaryServerInterceptorWithRedactedRequest(t *testing.T) {
+	// Redaction itself is tested with logging.RedactedProto. This checks the wiring.
+	logMap := runInterceptor(t, wrapperspb.String("hello"), grpclogging.WithRedactedRequest())
+
+	if v := logMap["grpc.method"]; v != fullMethod {
+		t.Errorf("Expected grpc.method=%s, got: %v", fullMethod, v)
+	}
+	if v := logMap["request"]; v != "hello" {
+		t.Errorf("Expected the request to be logged, got: %v", v)
+	}
+}
+
 func TestUnaryServerInterceptorWithRequestNonProtoRequest(t *testing.T) {
 	logMap := runInterceptor(t, "not a proto message", grpclogging.WithRequest())
 

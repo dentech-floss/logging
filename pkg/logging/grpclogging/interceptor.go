@@ -22,10 +22,20 @@ type options struct {
 }
 
 // WithRequest adds the full request as the "request" field on every call.
-// Don't use it if requests can contain sensitive data; use WithRequestFilter.
+// Don't use it if requests can contain sensitive data; use WithRedactedRequest
+// or WithRequestFilter.
 func WithRequest() Option {
 	return WithRequestFilter(func(_ *grpc.UnaryServerInfo, req proto.Message) (slog.Attr, bool) {
 		return logging.Proto("request", req), true
+	})
+}
+
+// WithRedactedRequest adds the request as the "request" field on every call,
+// leaving out fields marked with [debug_redact = true] in the .proto schema.
+// See logging.RedactedProto.
+func WithRedactedRequest() Option {
+	return WithRequestFilter(func(_ *grpc.UnaryServerInfo, req proto.Message) (slog.Attr, bool) {
+		return logging.RedactedProto("request", req), true
 	})
 }
 
@@ -41,7 +51,8 @@ func WithRequestFilter(filter RequestFilter) Option {
 // unary call, using logging.WithFields. Everything the handler logs with that
 // context, through a *Context method, includes it.
 //
-// The request is not logged unless WithRequest or WithRequestFilter is passed.
+// The request is not logged unless WithRequest, WithRedactedRequest or
+// WithRequestFilter is passed.
 //
 // Register it with grpc.ChainUnaryInterceptor(grpclogging.UnaryServerInterceptor()).
 func UnaryServerInterceptor(opts ...Option) grpc.UnaryServerInterceptor {
