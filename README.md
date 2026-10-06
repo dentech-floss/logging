@@ -85,7 +85,7 @@ func (s *PatientGatewayServiceV1) findAppointments(
     ctx context.Context,
     startTimeLocal time.Time,
 ) (*patient_gateway_service_v1.FindAppointmentsResponse, error) {
-    // Includes "caller" (and "grpc.method" + "request" with the interceptor below)
+    // Includes "caller" (and "grpc.method" with the interceptor below)
     s.logger.InfoContext(ctx, "Finding appointments", logging.Any("start_time_local", startTimeLocal))
 
     return &patient_gateway_service_v1.FindAppointmentsResponse{}, nil
@@ -98,8 +98,8 @@ OpenTelemetry trace and span IDs.
 
 ### gRPC interceptor
 
-`grpclogging.UnaryServerInterceptor` adds `grpc.method` and `request` (when the request is a protobuf message) to
-the context of every unary call, so handlers don't have to:
+`grpclogging.UnaryServerInterceptor` adds `grpc.method` to the context of every unary call, so it's on every entry
+logged during the call:
 
 ```go
 import (
@@ -116,8 +116,26 @@ _server := server.NewServer(&server.ServerConfig{
 })
 ```
 
-The request is attached to every entry logged during the call. Keep that in mind for methods whose requests
-carry sensitive data.
+The request is **not** logged by default. To add it as the `request` field, pass an option:
+
+```go
+// The full request, on every call
+grpclogging.UnaryServerInterceptor(grpclogging.WithRequest())
+
+// Decide per call: skip it, or log a redacted version
+grpclogging.UnaryServerInterceptor(grpclogging.WithRequestFilter(
+    func(info *grpc.UnaryServerInfo, req proto.Message) (slog.Attr, bool) {
+        if strings.HasPrefix(info.FullMethod, "/api.payment.v1.") {
+            return slog.Attr{}, false // never log payment requests
+        }
+        return logging.Proto("request", req), true
+    },
+))
+```
+
+> **Warning:** `WithRequest` writes the full request, in plain text, to every entry logged during the call. Don't
+> use it in services whose requests contain personal data (e.g. patient information), payment details or secrets.
+> Use `WithRequestFilter` to skip or redact those requests instead.
 
 ### Upgrading from v0.3.x
 
