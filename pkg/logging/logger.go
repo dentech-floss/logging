@@ -35,7 +35,9 @@ import (
 	"log/slog"
 	"os"
 	"runtime/debug"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/trace"
@@ -124,20 +126,53 @@ func NewLogger(config *LoggerConfig) *Logger {
 	}
 }
 
+var defaultLogger atomic.Pointer[Logger]
+
+func init() {
+	defaultLogger.Store(NewLogger(&LoggerConfig{MinLevel: InfoLevel}))
+}
+
+// SetDefault makes logger the one returned by Default and by LoggerFromContext
+// when the context holds no logger. Call it in main with the service's logger.
+// A nil logger is ignored.
+func SetDefault(logger *Logger) {
+	if logger != nil {
+		defaultLogger.Store(logger)
+	}
+}
+
+// Default returns the logger set with SetDefault. Before SetDefault is called it
+// is a logger writing JSON to stdout at InfoLevel. It is never nil.
+func Default() *Logger {
+	return defaultLogger.Load()
+}
+
+// Deprecated: store log fields with WithFields instead and log with an injected
+// logger. Carrying the logger in the context is easy to get wrong.
 func ContextWithLogger(ctx context.Context, logger *Logger) context.Context {
 	return context.WithValue(ctx, loggerContextKey{}, logger)
 }
 
+// LoggerFromContext returns the logger stored with ContextWithLogger, or Default
+// if there is none. It never returns nil.
+//
+// Deprecated: log with an injected logger and pass ctx to the *Context methods
+// instead. Fields stored with WithFields are added to those log entries.
 func LoggerFromContext(ctx context.Context) *Logger {
-	logger, ok := ctx.Value(loggerContextKey{}).(*Logger)
-	if !ok {
-		return nil
+	if logger := storedLogger(ctx); logger != nil {
+		return logger
 	}
 
+	return Default()
+}
+
+// storedLogger returns the logger stored with ContextWithLogger, or nil.
+func storedLogger(ctx context.Context) *Logger {
+	logger, _ := ctx.Value(loggerContextKey{}).(*Logger)
 	return logger
 }
 
-// Deprecated: for backwards compatibility. Use ContextWithLogger instead.
+// Deprecated: for backwards compatibility. Use WithFields instead.
 func (l *Logger) WithContext(
 	ctx context.Context,
 	args ...any,
@@ -247,7 +282,7 @@ func (lc *LoggerWithContext) With(args ...any) *LoggerWithContext {
 	}
 }
 
-// Deprecated: for backwards compatibility. Use ContextWithLogger instead.
+// Deprecated: for backwards compatibility. Use WithFields instead.
 func (lc *LoggerWithContext) Context() context.Context {
 	return lc.ctx
 }
@@ -359,6 +394,21 @@ func (t *spanContextLogHandler) WithGroup(name string) slog.Handler {
 	}
 }
 
+// WithFields returns a context whose log entries get attrs added, on top of any
+// fields already stored in ctx. The fields are added to every entry logged with
+// the returned context through a *Context method, by any logger from this package.
+func WithFields(
+	ctx context.Context,
+	attrs ...slog.Attr,
+) context.Context {
+	return ContextWithLoggerFields(
+		ctx,
+		slices.Concat(LoggerFieldsFromContext(ctx), attrs),
+	)
+}
+
+// ContextWithLoggerFields stores attrs in ctx, replacing any fields already
+// there. Use WithFields to add to the existing fields instead.
 func ContextWithLoggerFields(
 	ctx context.Context,
 	attrs []slog.Attr,
