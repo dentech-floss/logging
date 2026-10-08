@@ -402,35 +402,44 @@ func fieldsFromContext(ctx context.Context) []slog.Attr {
 }
 
 func replacer(groups []string, a slog.Attr) slog.Attr {
+	if len(groups) > 0 {
+		return a
+	}
+
 	// Rename attribute keys to match Cloud Logging structured log format
 	switch a.Key {
 	case slog.LevelKey:
-		a.Key = "severity"
-		level := a.Value.Any().(slog.Level)
-		// Map slog.Level string values to Cloud Logging LogSeverity
-		// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogSeverity
-		switch level {
-		case DebugLevel:
-			a.Value = slog.StringValue("DEBUG")
-		case InfoLevel:
-			a.Value = slog.StringValue("INFO")
-		case NoticeLevel:
-			a.Value = slog.StringValue("NOTICE")
-		case WarnLevel:
-			a.Value = slog.StringValue("WARNING")
-		case ErrorLevel, DPanicLevel:
-			a.Value = slog.StringValue("ERROR")
-		case PanicLevel:
-			a.Value = slog.StringValue("CRITICAL")
-		case FatalLevel:
-			a.Value = slog.StringValue("EMERGENCY")
+		if level, ok := a.Value.Any().(slog.Level); ok {
+			a.Key = "severity"
+			// Map slog.Level string values to Cloud Logging LogSeverity
+			// https://cloud.google.com/logging/docs/reference/v2/rest/v2/LogEntry#LogSeverity
+			switch level {
+			case DebugLevel:
+				a.Value = slog.StringValue("DEBUG")
+			case InfoLevel:
+				a.Value = slog.StringValue("INFO")
+			case NoticeLevel:
+				a.Value = slog.StringValue("NOTICE")
+			case WarnLevel:
+				a.Value = slog.StringValue("WARNING")
+			case ErrorLevel, DPanicLevel:
+				a.Value = slog.StringValue("ERROR")
+			case PanicLevel:
+				a.Value = slog.StringValue("CRITICAL")
+			case FatalLevel:
+				a.Value = slog.StringValue("EMERGENCY")
+			}
 		}
 	case slog.TimeKey:
-		a.Key = "timestamp"
+		if _, ok := a.Value.Any().(time.Time); ok {
+			a.Key = "timestamp"
+		}
 	case slog.MessageKey:
 		a.Key = "message"
 	case slog.SourceKey:
-		a.Key = "logging.googleapis.com/sourceLocation"
+		if _, ok := a.Value.Any().(*slog.Source); ok {
+			a.Key = "logging.googleapis.com/sourceLocation"
+		}
 	}
 	return a
 }
