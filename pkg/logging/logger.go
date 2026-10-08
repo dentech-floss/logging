@@ -321,6 +321,70 @@ func (lc *LoggerWithContext) Fatal(
 	lc.l.FatalContext(lc.ctx, msg, args...)
 }
 
+const (
+	escapedMsgKey    = "\x00msg"
+	escapedTimeKey   = "\x00time"
+	escapedLevelKey  = "\x00level"
+	escapedSourceKey = "\x00source"
+)
+
+func isReservedKey(key string) bool {
+	switch key {
+	case slog.MessageKey, slog.TimeKey, slog.LevelKey, slog.SourceKey:
+		return true
+	default:
+		return false
+	}
+}
+
+func escapeAttr(a slog.Attr) slog.Attr {
+	if a.Key == "" {
+		resolved := a.Value.Resolve()
+		if resolved.Kind() == slog.KindGroup {
+			inner := resolved.Group()
+			escaped := make([]slog.Attr, len(inner))
+			for i, in := range inner {
+				escaped[i] = escapeAttr(in)
+			}
+			return slog.Attr{Value: slog.GroupValue(escaped...)}
+		}
+		return a
+	}
+	if !isReservedKey(a.Key) {
+		return a
+	}
+	resolved := a.Value.Resolve()
+	if resolved.Kind() == slog.KindGroup {
+		return a
+	}
+	switch a.Key {
+	case slog.MessageKey:
+		return slog.Attr{Key: escapedMsgKey, Value: a.Value}
+	case slog.TimeKey:
+		return slog.Attr{Key: escapedTimeKey, Value: a.Value}
+	case slog.LevelKey:
+		return slog.Attr{Key: escapedLevelKey, Value: a.Value}
+	case slog.SourceKey:
+		return slog.Attr{Key: escapedSourceKey, Value: a.Value}
+	}
+	return a
+}
+
+func hasEscapableAttr(r slog.Record) bool {
+	if r.NumAttrs() == 0 {
+		return false
+	}
+	found := false
+	r.Attrs(func(a slog.Attr) bool {
+		if isReservedKey(a.Key) || a.Key == "" {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
 func handlerWithSpanContext(projectID string, handler slog.Handler) *spanContextLogHandler {
 	return &spanContextLogHandler{
 		Handler:   handler,
@@ -335,9 +399,22 @@ func (t *spanContextLogHandler) Enabled(ctx context.Context, level slog.Level) b
 // Handle overrides slog.Handler's Handle method. This adds attributes from the
 // span context to the slog.Record.
 func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) error {
+	if hasEscapableAttr(record) {
+		newAttrs := make([]slog.Attr, 0, record.NumAttrs())
+		record.Attrs(func(a slog.Attr) bool {
+			newAttrs = append(newAttrs, escapeAttr(a))
+			return true
+		})
+		newRecord := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+		newRecord.AddAttrs(newAttrs...)
+		record = newRecord
+	}
+
 	attrs := fieldsFromContext(ctx)
 	if len(attrs) != 0 {
-		record.AddAttrs(attrs...)
+		for _, a := range attrs {
+			record.AddAttrs(escapeAttr(a))
+		}
 	}
 
 	if record.Level >= slog.LevelWarn {
@@ -366,9 +443,27 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 }
 
 func (t *spanContextLogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	hasEscapable := false
+	for _, a := range attrs {
+		if isReservedKey(a.Key) || a.Key == "" {
+			hasEscapable = true
+			break
+		}
+	}
+	if !hasEscapable {
+		return &spanContextLogHandler{
+			ProjectID: t.ProjectID,
+			Handler:   t.Handler.WithAttrs(attrs),
+		}
+	}
+
+	escaped := make([]slog.Attr, len(attrs))
+	for i, a := range attrs {
+		escaped[i] = escapeAttr(a)
+	}
 	return &spanContextLogHandler{
 		ProjectID: t.ProjectID,
-		Handler:   t.Handler.WithAttrs(attrs),
+		Handler:   t.Handler.WithAttrs(escaped),
 	}
 }
 
@@ -402,6 +497,20 @@ func fieldsFromContext(ctx context.Context) []slog.Attr {
 }
 
 func replacer(groups []string, a slog.Attr) slog.Attr {
+	switch a.Key {
+	case escapedMsgKey:
+		a.Key = slog.MessageKey
+		return a
+	case escapedTimeKey:
+		a.Key = slog.TimeKey
+		return a
+	case escapedLevelKey:
+		a.Key = slog.LevelKey
+		return a
+	case escapedSourceKey:
+		a.Key = slog.SourceKey
+		return a
+	}
 	if len(groups) > 0 {
 		return a
 	}
