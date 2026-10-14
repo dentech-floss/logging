@@ -178,8 +178,136 @@ empty or redacted.
   `debug_redact = true`. Make it part of reviewing `.proto` changes.
 - Fields inside `google.protobuf.Any` values are not inspected. Don't log messages that carry sensitive data in an
   `Any`.
-- Redaction only applies to `logging.Proto`. A sensitive value logged with `logging.String`, `logging.Any` and so
-  on is logged as is.
+- Redaction only applies to `logging.Proto` and `logging.Struct` (see below). A sensitive value logged with
+  `logging.String`, `logging.Any` and so on is logged as is.
+
+### Logging Go structs (REST/JSON APIs)
+
+Request and response types of REST/JSON APIs are plain Go structs, so there's no `.proto` schema to mark. Mark the
+sensitive fields with the `log:"redact"` struct tag instead, and log the struct with `logging.Struct`. It works like
+`logging.Proto`: the marked fields are left out, and the value is serialised lazily and only once. Fields tagged
+`log:"mask"` are logged partly masked instead (see [Masking instead of leaving out](#masking-instead-of-leaving-out)).
+
+#### 1. Tag the fields where the struct is defined
+
+```go
+type CreditPreCheckRequest struct {
+    MerchantID          string  `json:"merchantId"`
+    Amount              float64 `json:"amount"`
+    Currency            string  `json:"currency"`
+    CustomerNin         string  `json:"customerNin" log:"redact"`
+    CustomerPhoneNumber string  `json:"customerPhoneNumber" log:"redact"`
+    Payer               *Payer  `json:"payer,omitempty"`
+}
+
+type Payer struct {
+    GivenName      string   `json:"givenName" log:"redact"`
+    FamilyName     string   `json:"familyName" log:"redact"`
+    BillingAddress *Address `json:"billingAddress,omitempty" log:"redact"` // leaves out the whole address
+    Country        string   `json:"country"`
+}
+
+type TokenPaymentResponse struct {
+    PaymentID     string `json:"paymentId"`
+    Status        string `json:"status"`
+    PayerToken    string `json:"payerToken" log:"redact"`  // secrets too
+    CheckoutToken string `json:"checkoutToken" log:"mask"` // logged as "ct***************9f"
+}
+```
+
+The `log` tag doesn't affect the JSON that's sent: `encoding/json` ignores it.
+
+#### Masking instead of leaving out
+
+`log:"mask"` logs a string with only its first 2 and last 2 characters, and `*` for the rest:
+`"ct_8f2a91c04b7d3e9f"` is logged as `"ct***************9f"`. Strings shorter than 8 characters are logged as
+`"********"`, so neither the value nor its length is shown. An empty string stays empty, and a nil `*string` is
+logged as `null`.
+
+Use it for values where seeing which one was used helps when debugging, but the value itself must not be logged:
+tokens, API keys and similar identifiers. Don't use it for personal data. A masked personal number still shows the
+century of birth and a digit that encodes gender, and a masked name or email still says a lot about the person.
+Use `log:"redact"` for those.
+
+Only strings (and pointers to strings) can be masked. A `log:"mask"` field of any other type is left out, as if it
+had `log:"redact"`.
+
+#### 2. Log the struct, not the raw request or body
+
+```go
+func (c *Client) CreditPreCheck(ctx context.Context, request *CreditPreCheckRequest) (*CreditPreCheckResponse, error) {
+    // Added to every entry below that uses ctx, without the redacted fields
+    ctx = logging.ContextWithFields(ctx, logging.Struct("request", request))
+
+    body, err := json.Marshal(request)
+    if err != nil {
+        return nil, err
+    }
+    httpRequest, err := http.NewRequestWithContext(ctx, http.MethodPost, c.host+"/payments/precheck/v1", bytes.NewReader(body))
+    if err != nil {
+        return nil, err
+    }
+    httpRequest.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+    httpResponse, err := c.httpClient.Do(httpRequest)
+    if err != nil {
+        c.logger.ErrorContext(ctx, "Credit pre-check failed", logging.Error(err))
+        return nil, err
+    }
+    defer httpResponse.Body.Close()
+
+    var response CreditPreCheckResponse
+    if err := json.NewDecoder(httpResponse.Body).Decode(&response); err != nil {
+        c.logger.ErrorContext(ctx, "Failed to decode credit pre-check response",
+            logging.Int("status", httpResponse.StatusCode),
+            logging.Error(err),
+        )
+        return nil, err
+    }
+
+    c.logger.InfoContext(ctx, "Credit pre-check done",
+        logging.Int("status", httpResponse.StatusCode),
+        logging.Struct("response", &response),
+    )
+    return &response, nil
+}
+```
+
+With the types above, this request:
+
+```json
+{"merchantId": "m-1", "amount": 1500, "currency": "SEK", "customerNin": "199001011234", "customerPhoneNumber": "+46701234567", "payer": {"givenName": "Anna", "familyName": "Andersson", "billingAddress": {"street": "Storgatan 1"}, "country": "SE"}}
+```
+
+is logged as:
+
+```json
+{"merchantId": "m-1", "amount": 1500, "currency": "SEK", "payer": {"country": "SE"}}
+```
+
+Don't log `httputil.DumpRequestOut`, `httputil.DumpResponse`, `logging.DumpRequest`/`logging.DumpResponse` or the
+raw body (`string(body)`) of these calls. A dump is just bytes, so nothing in it can be redacted, and a request dump
+also contains the headers, including `Authorization` and API keys.
+
+#### Good to know
+
+- Field names, `json:"-"`, `omitempty` and `omitzero` follow the `json` tags, so the log matches what's sent over
+  the wire. Fields keep the struct's order.
+- Redaction works on nested structs, pointers, slices, arrays and maps at any depth, and on the fields of embedded
+  structs. The value you pass in is not modified.
+- Tag a struct-typed field to leave out all of it, like `BillingAddress` above. A `log` tag on an embedded struct
+  applies to all the fields it promotes, and `redact` on a field wins over `mask` on the struct it's embedded in.
+- When an embedded struct has a field with the same JSON name as another field, the field that `encoding/json`
+  marshals is the one that's logged, and the others are left out. A redacted field still takes part in this, so a
+  field it hides is never logged in its place.
+- Protobuf messages inside the value are logged like `logging.Proto`, without their `debug_redact` fields.
+- Values whose type implements `json.Marshaler` or `encoding.TextMarshaler` (e.g. `time.Time`) are logged with that
+  method and not inspected. Neither are `map[string]any`, `any` holding a decoded JSON object, or
+  `json.RawMessage` values, since they have no struct tags. Decode into a struct with tagged fields before logging.
+- Only tagged fields are removed or masked. When you add a field to a request or response type, decide whether it
+  needs `log:"redact"` or `log:"mask"`, just like with `debug_redact`.
+- For types you can't edit (third-party SDKs), log the fields you need one by one with `logging.String` and
+  similar instead of the whole value.
 
 ### Upgrading from v0.3.x
 
@@ -232,3 +360,8 @@ httpClient.Transport = otelhttp.NewTransport(
     ),
 )
 ```
+
+`logging.DumpRequest` and `logging.DumpResponse` log the complete request and response: all headers, including
+`Authorization` and API keys, and the full body. Nothing in a dump is redacted. Only use them against APIs that
+carry no secrets or personal data, and otherwise leave `LoggingOptions` empty and log the request and response
+structs with `logging.Struct` (see [Logging Go structs](#logging-go-structs-restjson-apis)).
