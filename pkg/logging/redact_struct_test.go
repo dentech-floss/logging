@@ -227,3 +227,161 @@ func TestStructIsSerialisedOnceWhenLogged(t *testing.T) {
 		}
 	}
 }
+
+func TestStructMasksTaggedStrings(t *testing.T) {
+	type credentials struct {
+		Token     string  `json:"token" log:"mask"`
+		Short     string  `json:"short" log:"mask"`
+		Empty     string  `json:"empty" log:"mask"`
+		Unicode   string  `json:"unicode" log:"mask"`
+		Pointer   *string `json:"pointer" log:"mask"`
+		NilPtr    *string `json:"nil_pointer" log:"mask"`
+		Omitted   string  `json:"omitted,omitempty" log:"mask"`
+		NotString int     `json:"not_string" log:"mask"`
+	}
+	pointer := "pointer-token-1234"
+
+	got := attrJSON(t, logging.Struct("v", credentials{
+		Token:     "sk_live_abcdef123456",
+		Short:     "1234567",
+		Unicode:   "ÅÄÖåäöÉé",
+		Pointer:   &pointer,
+		NotString: 42,
+	}).Value.Resolve().Any())
+
+	want := map[string]any{
+		"token":       "sk****************56",
+		"short":       "********",
+		"empty":       "",
+		"unicode":     "ÅÄ****Éé",
+		"pointer":     "po**************34",
+		"nil_pointer": nil,
+	}
+	for key, w := range want {
+		if v, ok := got[key]; !ok || v != w {
+			t.Errorf("Expected %s=%v, got: %v", key, w, v)
+		}
+	}
+	for _, key := range []string{"omitted", "not_string"} {
+		if v, ok := got[key]; ok {
+			t.Errorf("Expected %s to be left out, got: %v", key, v)
+		}
+	}
+}
+
+func TestStructMasksEmbeddedStruct(t *testing.T) {
+	type keys struct {
+		APIKey string `json:"api_key"`
+		Secret string `json:"secret" log:"redact"`
+	}
+	type request struct {
+		keys `log:"mask"`
+		ID   string `json:"id"`
+	}
+
+	got := attrJSON(t, logging.Struct("v", request{
+		keys: keys{APIKey: "key-1234567890", Secret: "secret"},
+		ID:   "1",
+	}).Value.Resolve().Any())
+
+	if v := got["api_key"]; v != "ke**********90" {
+		t.Errorf("Expected promoted api_key to be masked, got: %v", v)
+	}
+	if v, ok := got["secret"]; ok {
+		t.Errorf("Expected redact to win over an inherited mask, got: %v", v)
+	}
+}
+
+// pointerSecret masks itself on the wire with a pointer-receiver MarshalJSON.
+type pointerSecret struct {
+	Value string
+}
+
+func (s *pointerSecret) MarshalJSON() ([]byte, error) {
+	return []byte(`"***"`), nil
+}
+
+func TestStructUsesPointerReceiverMarshaler(t *testing.T) {
+	type request struct {
+		Secret pointerSecret `json:"secret"`
+	}
+	req := &request{Secret: pointerSecret{Value: "raw-secret"}}
+
+	wire, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	logged := logging.Struct("v", req).Value.Resolve().Any().(json.RawMessage)
+
+	if string(logged) != string(wire) {
+		t.Errorf("Expected %s like encoding/json, got: %s", wire, logged)
+	}
+}
+
+func TestStructResolvesFieldNameConflictsLikeJSON(t *testing.T) {
+	type inner struct {
+		Shadowed string `json:"name"`
+		Deeper   string `json:"deeper"`
+	}
+	type a struct {
+		Ambiguous string
+	}
+	type b struct {
+		Ambiguous string
+	}
+	type tagWins1 struct {
+		TagWins string `json:"tag_wins"`
+	}
+	type tagWins2 struct {
+		TagWins string
+	}
+	type outer struct {
+		inner
+		a
+		b
+		tagWins1
+		tagWins2
+		Name   string `json:"name"`
+		Deeper string `json:"deeper" log:"redact"`
+	}
+	value := outer{
+		inner:    inner{Shadowed: "embedded-secret", Deeper: "embedded-secret"},
+		a:        a{Ambiguous: "a"},
+		b:        b{Ambiguous: "b"},
+		tagWins1: tagWins1{TagWins: "tagged"},
+		tagWins2: tagWins2{TagWins: "untagged"},
+		Name:     "outer",
+		Deeper:   "outer-secret",
+	}
+
+	got := attrJSON(t, logging.Struct("v", value).Value.Resolve().Any())
+
+	if v := got["name"]; v != "outer" {
+		t.Errorf("Expected the outer name to win, got: %v", v)
+	}
+	if v, ok := got["deeper"]; ok {
+		t.Errorf("Expected a redacted outer field to hide the embedded one, got: %v", v)
+	}
+	if v, ok := got["Ambiguous"]; ok {
+		t.Errorf("Expected ambiguous fields to be left out, got: %v", v)
+	}
+	if v := got["tag_wins"]; v != "tagged" {
+		t.Errorf("Expected the json-tagged field to win, got: %v", v)
+	}
+
+	// Without redaction, the keys match what encoding/json marshals
+	type plain struct {
+		inner
+		a
+		b
+		Name string `json:"name"`
+	}
+	p := plain{inner: inner{Shadowed: "x", Deeper: "y"}, a: a{"a"}, b: b{"b"}, Name: "outer"}
+	wire, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if logged := logging.Struct("v", p).Value.Resolve().Any().(json.RawMessage); string(logged) != string(wire) {
+		t.Errorf("Expected %s like encoding/json, got: %s", wire, logged)
+	}
+}

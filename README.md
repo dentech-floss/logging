@@ -185,7 +185,8 @@ empty or redacted.
 
 Request and response types of REST/JSON APIs are plain Go structs, so there's no `.proto` schema to mark. Mark the
 sensitive fields with the `log:"redact"` struct tag instead, and log the struct with `logging.Struct`. It works like
-`logging.Proto`: the marked fields are left out, and the value is serialised lazily and only once.
+`logging.Proto`: the marked fields are left out, and the value is serialised lazily and only once. Fields tagged
+`log:"mask"` are logged partly masked instead (see [Masking instead of leaving out](#masking-instead-of-leaving-out)).
 
 #### 1. Tag the fields where the struct is defined
 
@@ -207,13 +208,29 @@ type Payer struct {
 }
 
 type TokenPaymentResponse struct {
-    PaymentID  string `json:"paymentId"`
-    Status     string `json:"status"`
-    PayerToken string `json:"payerToken" log:"redact"` // secrets too
+    PaymentID     string `json:"paymentId"`
+    Status        string `json:"status"`
+    PayerToken    string `json:"payerToken" log:"redact"`  // secrets too
+    CheckoutToken string `json:"checkoutToken" log:"mask"` // logged as "ct***************9f"
 }
 ```
 
 The `log` tag doesn't affect the JSON that's sent: `encoding/json` ignores it.
+
+#### Masking instead of leaving out
+
+`log:"mask"` logs a string with only its first 2 and last 2 characters, and `*` for the rest:
+`"ct_8f2a91c04b7d3e9f"` is logged as `"ct***************9f"`. Strings shorter than 8 characters are logged as
+`"********"`, so neither the value nor its length is shown. An empty string stays empty, and a nil `*string` is
+logged as `null`.
+
+Use it for values where seeing which one was used helps when debugging, but the value itself must not be logged:
+tokens, API keys and similar identifiers. Don't use it for personal data. A masked personal number still shows the
+century of birth and a digit that encodes gender, and a masked name or email still says a lot about the person.
+Use `log:"redact"` for those.
+
+Only strings (and pointers to strings) can be masked. A `log:"mask"` field of any other type is left out, as if it
+had `log:"redact"`.
 
 #### 2. Log the struct, not the raw request or body
 
@@ -278,13 +295,17 @@ also contains the headers, including `Authorization` and API keys.
   the wire. Fields keep the struct's order.
 - Redaction works on nested structs, pointers, slices, arrays and maps at any depth, and on the fields of embedded
   structs. The value you pass in is not modified.
-- Tag a struct-typed field to leave out all of it, like `BillingAddress` above.
+- Tag a struct-typed field to leave out all of it, like `BillingAddress` above. A `log` tag on an embedded struct
+  applies to all the fields it promotes, and `redact` on a field wins over `mask` on the struct it's embedded in.
+- When an embedded struct has a field with the same JSON name as another field, the field that `encoding/json`
+  marshals is the one that's logged, and the others are left out. A redacted field still takes part in this, so a
+  field it hides is never logged in its place.
 - Protobuf messages inside the value are logged like `logging.Proto`, without their `debug_redact` fields.
 - Values whose type implements `json.Marshaler` or `encoding.TextMarshaler` (e.g. `time.Time`) are logged with that
   method and not inspected. Neither are `map[string]any`, `any` holding a decoded JSON object, or
   `json.RawMessage` values, since they have no struct tags. Decode into a struct with tagged fields before logging.
-- Only tagged fields are removed. When you add a field to a request or response type, decide whether it needs
-  `log:"redact"`, just like with `debug_redact`.
+- Only tagged fields are removed or masked. When you add a field to a request or response type, decide whether it
+  needs `log:"redact"` or `log:"mask"`, just like with `debug_redact`.
 - For types you can't edit (third-party SDKs), log the fields you need one by one with `logging.String` and
   similar instead of the whole value.
 

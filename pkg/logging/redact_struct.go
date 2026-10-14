@@ -15,10 +15,18 @@ import (
 )
 
 const (
-	// redactTagKey and redactTagValue mark a struct field to leave out of the
-	// log: `log:"redact"`.
-	redactTagKey   = "log"
+	// logTagKey is the struct tag that marks a field to leave out of the log,
+	// `log:"redact"`, or to log masked, `log:"mask"`.
+	logTagKey      = "log"
 	redactTagValue = "redact"
+	maskTagValue   = "mask"
+
+	// maskVisibleChars characters are kept at each end of a masked value, if
+	// it has at least maskMinLength characters. Shorter values are replaced
+	// by maskShort, so neither the value nor its length is logged.
+	maskVisibleChars = 2
+	maskMinLength    = 8
+	maskShort        = "********"
 
 	// maxStructDepth stops pointer cycles from recursing forever.
 	maxStructDepth = 32
@@ -77,6 +85,16 @@ func redactValue(v reflect.Value, depth int) (any, error) {
 	}
 
 	if v.CanInterface() {
+		// encoding/json also calls pointer-receiver methods on addressable values
+		if v.Kind() != reflect.Pointer && v.CanAddr() {
+			pt := reflect.PointerTo(v.Type())
+			if pt.Implements(protoMessageType) {
+				return redactedProtoJSON(v.Addr().Interface().(proto.Message))
+			}
+			if pt.Implements(jsonMarshalerType) || pt.Implements(textMarshalerType) {
+				return v.Addr().Interface(), nil
+			}
+		}
 		if v.Type().Implements(protoMessageType) {
 			return redactedProtoJSON(v.Interface().(proto.Message))
 		}
@@ -94,11 +112,7 @@ func redactValue(v reflect.Value, depth int) (any, error) {
 		return redactValue(v.Elem(), depth+1)
 
 	case reflect.Struct:
-		fields := make(orderedObject, 0, v.NumField())
-		if err := appendStructFields(&fields, v, depth); err != nil {
-			return nil, err
-		}
-		return fields, nil
+		return structFields(v, depth)
 
 	case reflect.Map:
 		if v.IsNil() {
@@ -156,35 +170,105 @@ func redactValue(v reflect.Value, depth int) (any, error) {
 	}
 }
 
-// appendStructFields appends the fields of the struct v to fields. Fields of
-// embedded structs without a json name are promoted, like encoding/json does.
-func appendStructFields(fields *orderedObject, v reflect.Value, depth int) error {
-	t := v.Type()
-	for i := range t.NumField() {
-		sf := t.Field(i)
-		if sf.Tag.Get(redactTagKey) == redactTagValue {
+// structField is a field of a struct, or of a struct embedded in it, that
+// encoding/json may marshal.
+type structField struct {
+	name   string
+	depth  int  // 0 for the struct's own fields, +1 per embedded struct
+	tagged bool // the name comes from a json tag
+	log    string
+	opts   []string
+	value  reflect.Value // invalid if the field is in a nil embedded pointer
+}
+
+// structFields returns the fields of the struct v that encoding/json would
+// marshal, in the same order, with redacted fields left out and masked
+// fields masked.
+func structFields(v reflect.Value, depth int) (orderedObject, error) {
+	var candidates []structField
+	if err := collectFields(&candidates, v.Type(), v, 0, "", depth); err != nil {
+		return nil, err
+	}
+
+	fields := make(orderedObject, 0, len(candidates))
+	for _, f := range dominantFields(candidates) {
+		if f.log == redactTagValue || !f.value.IsValid() {
+			continue
+		}
+		if slices.Contains(f.opts, "omitempty") && isEmptyValue(f.value) {
+			continue
+		}
+		if slices.Contains(f.opts, "omitzero") && f.value.IsZero() {
 			continue
 		}
 
+		var value any
+		if f.log == maskTagValue {
+			masked, ok := maskValue(f.value)
+			if !ok {
+				// Only strings can be masked, leave anything else out
+				continue
+			}
+			value = masked
+		} else {
+			var err error
+			if value, err = redactValue(f.value, depth+1); err != nil {
+				return nil, err
+			}
+		}
+		fields = append(fields, objectField{name: f.name, value: value})
+	}
+	return fields, nil
+}
+
+// collectFields appends the fields of the struct type t to fields, promoting
+// the fields of embedded structs without a json name like encoding/json
+// does. v is invalid when t is reached through a nil embedded pointer; its
+// fields still take part in resolving name conflicts, as in encoding/json.
+// A log tag on an embedded struct applies to all its promoted fields.
+func collectFields(
+	fields *[]structField,
+	t reflect.Type,
+	v reflect.Value,
+	embedDepth int,
+	inheritedLog string,
+	depth int,
+) error {
+	if embedDepth > maxStructDepth {
+		return fmt.Errorf("struct embedded deeper than %d levels, is it cyclic?", maxStructDepth)
+	}
+
+	for i := range t.NumField() {
+		sf := t.Field(i)
 		name, opts, _ := strings.Cut(sf.Tag.Get("json"), ",")
 		if name == "-" && opts == "" {
 			continue
 		}
 
-		fv := v.Field(i)
+		log := sf.Tag.Get(logTagKey)
+		if inheritedLog == redactTagValue || (inheritedLog == maskTagValue && log != redactTagValue) {
+			log = inheritedLog
+		}
+
+		var fv reflect.Value
+		if v.IsValid() {
+			fv = v.Field(i)
+		}
+
 		if sf.Anonymous && name == "" {
 			ft := sf.Type
 			if ft.Kind() == reflect.Pointer {
 				ft = ft.Elem()
+				if fv.IsValid() {
+					if fv.IsNil() {
+						fv = reflect.Value{}
+					} else {
+						fv = fv.Elem()
+					}
+				}
 			}
 			if ft.Kind() == reflect.Struct {
-				if fv.Kind() == reflect.Pointer {
-					if fv.IsNil() {
-						continue
-					}
-					fv = fv.Elem()
-				}
-				if err := appendStructFields(fields, fv, depth+1); err != nil {
+				if err := collectFields(fields, ft, fv, embedDepth+1, log, depth); err != nil {
 					return err
 				}
 				continue
@@ -194,24 +278,83 @@ func appendStructFields(fields *orderedObject, v reflect.Value, depth int) error
 			continue
 		}
 
-		optList := strings.Split(opts, ",")
-		if slices.Contains(optList, "omitempty") && isEmptyValue(fv) {
-			continue
-		}
-		if slices.Contains(optList, "omitzero") && fv.IsZero() {
-			continue
-		}
-
-		if name == "" {
+		tagged := name != ""
+		if !tagged {
 			name = sf.Name
 		}
-		value, err := redactValue(fv, depth+1)
-		if err != nil {
-			return err
-		}
-		*fields = append(*fields, objectField{name: name, value: value})
+		*fields = append(*fields, structField{
+			name:   name,
+			depth:  embedDepth,
+			tagged: tagged,
+			log:    log,
+			opts:   strings.Split(opts, ","),
+			value:  fv,
+		})
 	}
 	return nil
+}
+
+// dominantFields resolves fields with the same name like encoding/json: the
+// least embedded field wins, then the one named by a json tag. If that still
+// leaves more than one, none of them is marshaled. Redacted fields take part
+// too, so a redacted field can't let a field it hides be logged.
+func dominantFields(fields []structField) []structField {
+	byName := make(map[string][]int, len(fields))
+	for i, f := range fields {
+		byName[f.name] = append(byName[f.name], i)
+	}
+
+	keep := make([]bool, len(fields))
+	for _, indexes := range byName {
+		best := indexes[0]
+		ambiguous := false
+		for _, i := range indexes[1:] {
+			a, b := fields[i], fields[best]
+			switch {
+			case a.depth < b.depth || (a.depth == b.depth && a.tagged && !b.tagged):
+				best, ambiguous = i, false
+			case a.depth == b.depth && a.tagged == b.tagged:
+				ambiguous = true
+			}
+		}
+		if !ambiguous {
+			keep[best] = true
+		}
+	}
+
+	dominant := make([]structField, 0, len(fields))
+	for i, f := range fields {
+		if keep[i] {
+			dominant = append(dominant, f)
+		}
+	}
+	return dominant
+}
+
+// maskValue masks a string, or a pointer to one: the first and last
+// maskVisibleChars characters are kept and the rest replaced with '*'.
+// Values shorter than maskMinLength characters are replaced by maskShort.
+// It reports false if v isn't a string.
+func maskValue(v reflect.Value) (any, bool) {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return nil, true
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.String {
+		return nil, false
+	}
+
+	runes := []rune(v.String())
+	switch {
+	case len(runes) == 0:
+		return "", true
+	case len(runes) < maskMinLength:
+		return maskShort, true
+	}
+	hidden := len(runes) - 2*maskVisibleChars
+	return string(runes[:maskVisibleChars]) + strings.Repeat("*", hidden) + string(runes[len(runes)-maskVisibleChars:]), true
 }
 
 func mapKey(k reflect.Value) (string, error) {
