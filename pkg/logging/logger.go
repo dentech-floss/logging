@@ -624,14 +624,14 @@ func Proto(
 	key string,
 	value proto.Message,
 ) slog.Attr {
-	return slog.Any(key, protoValue(sync.OnceValue(func() slog.Value {
+	return slog.Any(key, lazyValue(sync.OnceValue(func() slog.Value {
 		return redactedJSON(value)
 	})))
 }
 
-// protoValue defers serialising a message until it's logged.
-type protoValue func() slog.Value
+// lazyValue defers serialising a value until it's logged.
+type lazyValue func() slog.Value
 
-func (p protoValue) LogValue() slog.Value {
+func (p lazyValue) LogValue() slog.Value {
 	return p()
 }

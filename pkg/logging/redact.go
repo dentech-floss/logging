@@ -15,6 +15,16 @@ import (
 // [debug_redact = true]. Fields inside google.protobuf.Any values are not
 // inspected.
 func redactedJSON(m proto.Message) slog.Value {
+	bytes, err := redactedProtoJSON(m)
+	if err != nil {
+		return slog.StringValue(fmt.Sprintf("<proto marshal error: %v>", err))
+	}
+	return slog.AnyValue(bytes)
+}
+
+// redactedProtoJSON returns m as JSON without the fields marked with
+// [debug_redact = true].
+func redactedProtoJSON(m proto.Message) (json.RawMessage, error) {
 	if m != nil && m.ProtoReflect().IsValid() {
 		redacted := proto.Clone(m)
 		redact(redacted.ProtoReflect())
@@ -23,9 +33,9 @@ func redactedJSON(m proto.Message) slog.Value {
 
 	bytes, err := protojson.Marshal(m)
 	if err != nil {
-		return slog.StringValue(fmt.Sprintf("<proto marshal error: %v>", err))
+		return nil, err
 	}
-	return slog.AnyValue(json.RawMessage(bytes))
+	return json.RawMessage(bytes), nil
 }
 
 func redact(m protoreflect.Message) {
