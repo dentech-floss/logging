@@ -369,8 +369,10 @@ httpClient.Transport = otelhttp.NewTransport(
 )
 ```
 
-Each call is logged with `url`, `status`, `duration` and `duration_ms`. `DumpRequest` and `DumpResponse` add the
-full dumps as `outgoing_request` and `outgoing_response`, or `outgoing_request_dump_error` and
+Each call is logged with `url`, `duration` and `duration_ms`, plus `status` when a response is received. If the
+transport returns an error, the entry is logged at Error level with an `error` field instead of `status`, and
+the response is not dumped. `DumpRequest` and `DumpResponse` add the full dumps as `outgoing_request` and
+`outgoing_response`, or `outgoing_request_dump_error` and
 `outgoing_response_dump_error` when dumping fails. The `outgoing_` prefix keeps them apart from fields describing
 the incoming request, such as a `request` field added with `ContextWithFields`.
 
