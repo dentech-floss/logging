@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -585,9 +586,46 @@ func TestReplaceAttrLogValuerCallCount(t *testing.T) {
 		t.Errorf("Expected msg='hello', got: %v", v)
 	}
 
-	// Should only be resolved once in escapeAttr and once by slog JSONHandler (total <= 2)
-	if callCount > 2 {
-		t.Errorf("Expected LogValue() to be called at most 2 times, called: %d", callCount)
+	// escapeAttr resolves once and hands the resolved value to the JSONHandler
+	if callCount != 1 {
+		t.Errorf("Expected LogValue() to be called exactly once, called: %d", callCount)
+	}
+}
+
+// flipValuer alternates between a group and a scalar on each LogValue call.
+type flipValuer struct {
+	calls *int
+}
+
+func (f flipValuer) LogValue() slog.Value {
+	*f.calls++
+	if *f.calls%2 == 1 {
+		return slog.GroupValue(slog.String("msg", "inner"))
+	}
+	return slog.StringValue("scalar")
+}
+
+func TestEscapeAttrStatefulLogValuer(t *testing.T) {
+	for _, key := range []string{"msg", ""} {
+		t.Run("key="+key, func(t *testing.T) {
+			var buf bytes.Buffer
+			logger := newBufferLogger(&buf)
+
+			calls := 0
+			logger.Info("builtin", slog.Any(key, flipValuer{calls: &calls}))
+
+			raw := buf.String()
+			if strings.Contains(raw, `\u0000`) {
+				t.Errorf("Escaped key leaked into output: %s", raw)
+			}
+			logMap := parseLogEntry(t, &buf)
+			if v := logMap["message"]; v != "builtin" {
+				t.Errorf("Expected message='builtin', got: %v", v)
+			}
+			if calls != 1 {
+				t.Errorf("Expected LogValue() to be called exactly once, called: %d", calls)
+			}
+		})
 	}
 }
 

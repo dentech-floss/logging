@@ -338,34 +338,32 @@ func isReservedKey(key string) bool {
 }
 
 func escapeAttr(a slog.Attr) slog.Attr {
-	if a.Key == "" {
-		resolved := a.Value.Resolve()
-		if resolved.Kind() == slog.KindGroup {
-			inner := resolved.Group()
-			escaped := make([]slog.Attr, len(inner))
-			for i, in := range inner {
-				escaped[i] = escapeAttr(in)
-			}
-			return slog.Attr{Value: slog.GroupValue(escaped...)}
+	if a.Key != "" && !isReservedKey(a.Key) {
+		return a
+	}
+	// Resolve exactly once so the handler emits the same value inspected here;
+	// a stateful LogValuer could otherwise resolve differently on the second call.
+	a.Value = a.Value.Resolve()
+	if a.Value.Kind() == slog.KindGroup {
+		if a.Key != "" {
+			return a
 		}
-		return a
-	}
-	if !isReservedKey(a.Key) {
-		return a
-	}
-	resolved := a.Value.Resolve()
-	if resolved.Kind() == slog.KindGroup {
-		return a
+		inner := a.Value.Group()
+		escaped := make([]slog.Attr, len(inner))
+		for i, in := range inner {
+			escaped[i] = escapeAttr(in)
+		}
+		return slog.Attr{Value: slog.GroupValue(escaped...)}
 	}
 	switch a.Key {
 	case slog.MessageKey:
-		return slog.Attr{Key: escapedMsgKey, Value: a.Value}
+		a.Key = escapedMsgKey
 	case slog.TimeKey:
-		return slog.Attr{Key: escapedTimeKey, Value: a.Value}
+		a.Key = escapedTimeKey
 	case slog.LevelKey:
-		return slog.Attr{Key: escapedLevelKey, Value: a.Value}
+		a.Key = escapedLevelKey
 	case slog.SourceKey:
-		return slog.Attr{Key: escapedSourceKey, Value: a.Value}
+		a.Key = escapedSourceKey
 	}
 	return a
 }
