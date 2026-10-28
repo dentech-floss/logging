@@ -3,9 +3,11 @@ package logging
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -74,6 +76,56 @@ func TestLoggingTransport_RoundTrip(t *testing.T) {
 	lastMsg := mh.LastMessage()
 	if lastMsg != "called external service" {
 		t.Errorf("expected log message, got %q", lastMsg)
+	}
+}
+
+func TestLoggingTransport_DumpFieldsDoNotCollideWithIncomingRequest(t *testing.T) {
+	mockRT := roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: 200,
+			ProtoMajor: 1,
+			ProtoMinor: 1,
+			Body:       io.NopCloser(bytes.NewBufferString("ok")),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})
+
+	var buf bytes.Buffer
+	lt := NewLoggingTransport(
+		mockRT,
+		NewLogger(&LoggerConfig{MinLevel: DebugLevel, Output: &buf}),
+		&LoggingOptions{
+			DumpRequestFunc:  DumpRequest,
+			DumpResponseFunc: DumpResponse,
+		},
+	)
+
+	// Simulates a middleware that logs the incoming request with every entry.
+	ctx := ContextWithFields(context.Background(), String("request", "incoming"))
+	req, err := http.NewRequestWithContext(ctx, "GET", "http://example.com/out", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+	if _, err := lt.RoundTrip(req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var logMap map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &logMap); err != nil {
+		t.Fatalf("failed to parse log entry %q: %v", buf.String(), err)
+	}
+	if v := logMap["request"]; v != "incoming" {
+		t.Errorf("expected request='incoming', got: %v", v)
+	}
+	if v, _ := logMap["outgoing_request"].(string); !strings.HasPrefix(v, "GET /out HTTP/1.1") {
+		t.Errorf("expected outgoing_request dump, got: %q", v)
+	}
+	if v, _ := logMap["outgoing_response"].(string); !strings.HasPrefix(v, "HTTP/1.1 200 OK") {
+		t.Errorf("expected outgoing_response dump, got: %q", v)
+	}
+	if _, ok := logMap["response"]; ok {
+		t.Errorf("unexpected response field: %v", logMap["response"])
 	}
 }
 

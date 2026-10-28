@@ -309,6 +309,14 @@ also contains the headers, including `Authorization` and API keys.
 - For types you can't edit (third-party SDKs), log the fields you need one by one with `logging.String` and
   similar instead of the whole value.
 
+### Upgrading from v0.5.x
+
+- **HTTP client transport dump fields are renamed.** `request` and `response` are now `outgoing_request` and
+  `outgoing_response`, and `request_dump_error` and `response_dump_error` are now `outgoing_request_dump_error`
+  and `outgoing_response_dump_error`. Update Cloud Logging queries, dashboards and log-based metrics that filter
+  on the old names. The old names collided with a `request` field describing the incoming request, so one of
+  the two was lost.
+
 ### Upgrading from v0.3.x
 
 v0.4.0 has a few breaking changes. Most services only need to change a few lines in `main` and in code that logs
@@ -360,6 +368,11 @@ httpClient.Transport = otelhttp.NewTransport(
     ),
 )
 ```
+
+Each call is logged with `url`, `status`, `duration` and `duration_ms`. `DumpRequest` and `DumpResponse` add the
+full dumps as `outgoing_request` and `outgoing_response`, or `outgoing_request_dump_error` and
+`outgoing_response_dump_error` when dumping fails. The `outgoing_` prefix keeps them apart from fields describing
+the incoming request, such as a `request` field added with `ContextWithFields`.
 
 `logging.DumpRequest` and `logging.DumpResponse` log the complete request and response: all headers, including
 `Authorization` and API keys, and the full body. Nothing in a dump is redacted. Only use them against APIs that
