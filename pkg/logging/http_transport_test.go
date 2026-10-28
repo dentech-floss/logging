@@ -70,6 +70,7 @@ func TestLoggingTransport_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
 	}
@@ -107,9 +108,11 @@ func TestLoggingTransport_DumpFieldsDoNotCollideWithIncomingRequest(t *testing.T
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
 	}
-	if _, err := lt.RoundTrip(req); err != nil {
+	resp, err := lt.RoundTrip(req)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	defer resp.Body.Close()
 
 	var logMap map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &logMap); err != nil {
