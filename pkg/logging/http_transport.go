@@ -10,10 +10,12 @@ import (
 const (
 	logTypeValueExternalRequest = "external_request"
 
-	logFieldRequestDump       = "request"
-	logFieldResponseDump      = "response"
-	logFieldRequestDumpError  = "request_dump_error"
-	logFieldResponseDumpError = "response_dump_error"
+	// Prefixed with "outgoing_" so they don't collide with fields describing
+	// the incoming request, e.g. "request" added via ContextWithFields.
+	logFieldRequestDump       = "outgoing_request"
+	logFieldResponseDump      = "outgoing_response"
+	logFieldRequestDumpError  = "outgoing_request_dump_error"
+	logFieldResponseDumpError = "outgoing_response_dump_error"
 )
 
 type LoggingOptions struct {
