@@ -69,9 +69,58 @@ func TestNoticeLevel(t *testing.T) {
 		t.Errorf("Expected notice message, got: %v", msg)
 	}
 
-	// Notice is below Warn, so it must not include a stacktrace.
-	if _, ok := logMap["stacktrace"]; ok {
-		t.Errorf("Did not expect a stacktrace for NOTICE level")
+	// Notice is below Warn, so it must not include a stack.
+	for _, key := range []string{"stacktrace", "stack_trace"} {
+		if _, ok := logMap[key]; ok {
+			t.Errorf("Did not expect %q for NOTICE level", key)
+		}
+	}
+}
+
+func TestStackTraceKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		log      func(l *logging.Logger)
+		severity string
+		want     string // key that must hold the stack
+		notWant  string // key that must be absent
+	}{
+		{
+			name:     "error uses stack_trace for Error Reporting",
+			log:      func(l *logging.Logger) { l.Error("boom") },
+			severity: "ERROR",
+			want:     "stack_trace",
+			notWant:  "stacktrace",
+		},
+		{
+			name:     "warn keeps stacktrace and stays out of Error Reporting",
+			log:      func(l *logging.Logger) { l.Warn("careful") },
+			severity: "WARNING",
+			want:     "stacktrace",
+			notWant:  "stack_trace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			tt.log(newBufferLogger(&buf))
+			logMap := parseLogEntry(t, &buf)
+
+			if got := logMap["severity"]; got != tt.severity {
+				t.Errorf("severity = %v, want %v", got, tt.severity)
+			}
+			stack, ok := logMap[tt.want].(string)
+			if !ok || !strings.HasPrefix(stack, "goroutine ") {
+				t.Errorf("expected a Go stack under %q, got: %v", tt.want, logMap[tt.want])
+			}
+			if _, ok := logMap[tt.notWant]; ok {
+				t.Errorf("did not expect %q", tt.notWant)
+			}
+			if _, ok := logMap["serviceContext"]; !ok {
+				t.Errorf("expected serviceContext for Error Reporting")
+			}
+		})
 	}
 }
 

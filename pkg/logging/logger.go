@@ -394,6 +394,23 @@ func (t *spanContextLogHandler) Enabled(ctx context.Context, level slog.Level) b
 	return t.Handler.Enabled(ctx, level)
 }
 
+// Error Reporting picks up a log entry when its jsonPayload has a stack trace
+// under "stack_trace" (or "exception", or in "message"); "stacktrace" isn't
+// recognised. Only ERROR and above use that key, so warnings stay out of
+// Error Reporting, as with the earlier zapdriver-based logger.
+// https://cloud.google.com/error-reporting/docs/formatting-error-messages
+const (
+	errorStackKey = "stack_trace"
+	warnStackKey  = "stacktrace"
+)
+
+func stackKey(level slog.Level) string {
+	if level >= slog.LevelError {
+		return errorStackKey
+	}
+	return warnStackKey
+}
+
 // Handle overrides slog.Handler's Handle method. This adds attributes from the
 // span context to the slog.Record.
 func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) error {
@@ -416,10 +433,9 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 	}
 
 	if record.Level >= slog.LevelWarn {
-		stack := debug.Stack()
 		record.AddAttrs(
-			slog.String("stacktrace",
-				trimStack(stack),
+			slog.String(stackKey(record.Level),
+				trimStack(debug.Stack()),
 			),
 		)
 	}
