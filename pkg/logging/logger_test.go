@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -69,9 +70,100 @@ func TestNoticeLevel(t *testing.T) {
 		t.Errorf("Expected notice message, got: %v", msg)
 	}
 
-	// Notice is below Warn, so it must not include a stacktrace.
-	if _, ok := logMap["stacktrace"]; ok {
-		t.Errorf("Did not expect a stacktrace for NOTICE level")
+	// Notice is below Warn, so it must not include a stack.
+	for _, key := range []string{"stacktrace", "stack_trace"} {
+		if _, ok := logMap[key]; ok {
+			t.Errorf("Did not expect %q for NOTICE level", key)
+		}
+	}
+}
+
+func TestStackTraceKeys(t *testing.T) {
+	tests := []struct {
+		name     string
+		log      func(l *logging.Logger)
+		severity string
+		want     string // key that must hold the stack
+		notWant  string // key that must be absent
+		prefix   string // start of the stack value
+	}{
+		{
+			name:     "error uses stack_trace for Error Reporting",
+			log:      func(l *logging.Logger) { l.Error("boom") },
+			severity: "ERROR",
+			want:     "stack_trace",
+			notWant:  "stacktrace",
+			prefix:   "boom\n\ngoroutine ",
+		},
+		{
+			name:     "error title includes the error attribute",
+			log:      func(l *logging.Logger) { l.Error("send failed", logging.Error(errors.New("timeout\nafter 5s"))) },
+			severity: "ERROR",
+			want:     "stack_trace",
+			notWant:  "stacktrace",
+			prefix:   "send failed: timeout after 5s\n\ngoroutine ",
+		},
+		{
+			name:     "warn keeps stacktrace and stays out of Error Reporting",
+			log:      func(l *logging.Logger) { l.Warn("careful") },
+			severity: "WARNING",
+			want:     "stacktrace",
+			notWant:  "stack_trace",
+			prefix:   "goroutine ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			tt.log(newBufferLogger(&buf))
+			logMap := parseLogEntry(t, &buf)
+
+			if got := logMap["severity"]; got != tt.severity {
+				t.Errorf("severity = %v, want %v", got, tt.severity)
+			}
+			stack, ok := logMap[tt.want].(string)
+			if !ok || !strings.HasPrefix(stack, tt.prefix) || !strings.Contains(stack, "goroutine ") {
+				t.Errorf("expected %q then a Go stack under %q, got: %v", tt.prefix, tt.want, logMap[tt.want])
+			}
+			if _, ok := logMap[tt.notWant]; ok {
+				t.Errorf("did not expect %q", tt.notWant)
+			}
+			if _, ok := logMap["serviceContext"]; !ok {
+				t.Errorf("expected serviceContext for Error Reporting")
+			}
+		})
+	}
+}
+
+// redactedError returns its secret from Error() but a redacted LogValue().
+type redactedError struct{ calls *int }
+
+func (e redactedError) Error() string { return "token=secret" }
+
+func (e redactedError) LogValue() slog.Value {
+	*e.calls++
+	return slog.StringValue("[REDACTED]")
+}
+
+func TestStackTraceUsesLogValueOfError(t *testing.T) {
+	var buf bytes.Buffer
+	calls := 0
+	newBufferLogger(&buf).Error("auth failed", logging.Error(redactedError{calls: &calls}))
+	logMap := parseLogEntry(t, &buf)
+
+	stack, _ := logMap["stack_trace"].(string)
+	if !strings.HasPrefix(stack, "auth failed: [REDACTED]\n\n") {
+		t.Errorf("stack_trace title should use LogValue, got: %q", stack)
+	}
+	if strings.Contains(buf.String(), "token=secret") {
+		t.Errorf("secret leaked: %s", buf.String())
+	}
+	if got := logMap["error"]; got != "[REDACTED]" {
+		t.Errorf("error = %v, want [REDACTED]", got)
+	}
+	if calls != 1 {
+		t.Errorf("LogValue called %d times, want 1", calls)
 	}
 }
 

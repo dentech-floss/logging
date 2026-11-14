@@ -394,6 +394,67 @@ func (t *spanContextLogHandler) Enabled(ctx context.Context, level slog.Level) b
 	return t.Handler.Enabled(ctx, level)
 }
 
+// Error Reporting picks up a log entry when its jsonPayload has a stack trace
+// under "stack_trace" (or "exception", or in "message"); "stacktrace" isn't
+// recognised. Only ERROR and above use that key, so warnings stay out of
+// Error Reporting, as with the earlier zapdriver-based logger.
+// https://cloud.google.com/error-reporting/docs/formatting-error-messages
+const (
+	errorStackKey = "stack_trace"
+	warnStackKey  = "stacktrace"
+)
+
+// resolveErrorAttr resolves an "error" attribute that implements
+// slog.LogValuer, so the stack_trace title and the "error" field both use its
+// logging representation (which may be redacted), and a stateful LogValuer is
+// called only once.
+func resolveErrorAttr(record slog.Record) slog.Record {
+	found := false
+	record.Attrs(func(a slog.Attr) bool {
+		if a.Key == "error" && a.Value.Kind() == slog.KindLogValuer {
+			found = true
+			return false
+		}
+		return true
+	})
+	if !found {
+		return record
+	}
+	newRecord := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	record.Attrs(func(a slog.Attr) bool {
+		if a.Key == "error" && a.Value.Kind() == slog.KindLogValuer {
+			a.Value = a.Value.Resolve()
+		}
+		newRecord.AddAttrs(a)
+		return true
+	})
+	return newRecord
+}
+
+// errorReportingStack puts the log message (and the "error" attribute, if any)
+// on the first line, followed by a blank line and the stack, like a Go panic.
+// Error Reporting uses that first line as the title of the error group;
+// without it every group would be titled "goroutine N [running]:".
+func errorReportingStack(record slog.Record, stack string) string {
+	title := record.Message
+	record.Attrs(func(a slog.Attr) bool {
+		if a.Key == "error" {
+			if title != "" {
+				title += ": "
+			}
+			title += a.Value.String()
+			return false
+		}
+		return true
+	})
+	if title == "" {
+		return stack
+	}
+	// Error Reporting reads only the first line as the title.
+	title = strings.ReplaceAll(title, "\n", " ")
+	return title + "\n\n" + stack
+}
+
 // Handle overrides slog.Handler's Handle method. This adds attributes from the
 // span context to the slog.Record.
 func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) error {
@@ -415,11 +476,17 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 		}
 	}
 
-	if record.Level >= slog.LevelWarn {
-		stack := debug.Stack()
+	if record.Level >= slog.LevelError {
+		record = resolveErrorAttr(record)
 		record.AddAttrs(
-			slog.String("stacktrace",
-				trimStack(stack),
+			slog.String(errorStackKey,
+				errorReportingStack(record, trimStack(debug.Stack())),
+			),
+		)
+	} else if record.Level >= slog.LevelWarn {
+		record.AddAttrs(
+			slog.String(warnStackKey,
+				trimStack(debug.Stack()),
 			),
 		)
 	}
