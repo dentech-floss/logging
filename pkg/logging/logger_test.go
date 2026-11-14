@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"strings"
 	"testing"
@@ -84,6 +85,7 @@ func TestStackTraceKeys(t *testing.T) {
 		severity string
 		want     string // key that must hold the stack
 		notWant  string // key that must be absent
+		prefix   string // start of the stack value
 	}{
 		{
 			name:     "error uses stack_trace for Error Reporting",
@@ -91,6 +93,15 @@ func TestStackTraceKeys(t *testing.T) {
 			severity: "ERROR",
 			want:     "stack_trace",
 			notWant:  "stacktrace",
+			prefix:   "boom\n\ngoroutine ",
+		},
+		{
+			name:     "error title includes the error attribute",
+			log:      func(l *logging.Logger) { l.Error("send failed", logging.Error(errors.New("timeout\nafter 5s"))) },
+			severity: "ERROR",
+			want:     "stack_trace",
+			notWant:  "stacktrace",
+			prefix:   "send failed: timeout after 5s\n\ngoroutine ",
 		},
 		{
 			name:     "warn keeps stacktrace and stays out of Error Reporting",
@@ -98,6 +109,7 @@ func TestStackTraceKeys(t *testing.T) {
 			severity: "WARNING",
 			want:     "stacktrace",
 			notWant:  "stack_trace",
+			prefix:   "goroutine ",
 		},
 	}
 
@@ -111,8 +123,8 @@ func TestStackTraceKeys(t *testing.T) {
 				t.Errorf("severity = %v, want %v", got, tt.severity)
 			}
 			stack, ok := logMap[tt.want].(string)
-			if !ok || !strings.HasPrefix(stack, "goroutine ") {
-				t.Errorf("expected a Go stack under %q, got: %v", tt.want, logMap[tt.want])
+			if !ok || !strings.HasPrefix(stack, tt.prefix) || !strings.Contains(stack, "goroutine ") {
+				t.Errorf("expected %q then a Go stack under %q, got: %v", tt.prefix, tt.want, logMap[tt.want])
 			}
 			if _, ok := logMap[tt.notWant]; ok {
 				t.Errorf("did not expect %q", tt.notWant)

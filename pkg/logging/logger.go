@@ -404,11 +404,28 @@ const (
 	warnStackKey  = "stacktrace"
 )
 
-func stackKey(level slog.Level) string {
-	if level >= slog.LevelError {
-		return errorStackKey
+// errorReportingStack puts the log message (and the "error" attribute, if any)
+// on the first line, followed by a blank line and the stack, like a Go panic.
+// Error Reporting uses that first line as the title of the error group;
+// without it every group would be titled "goroutine N [running]:".
+func errorReportingStack(record slog.Record, stack string) string {
+	title := record.Message
+	record.Attrs(func(a slog.Attr) bool {
+		if a.Key == "error" {
+			if title != "" {
+				title += ": "
+			}
+			title += a.Value.String()
+			return false
+		}
+		return true
+	})
+	if title == "" {
+		return stack
 	}
-	return warnStackKey
+	// Error Reporting reads only the first line as the title.
+	title = strings.ReplaceAll(title, "\n", " ")
+	return title + "\n\n" + stack
 }
 
 // Handle overrides slog.Handler's Handle method. This adds attributes from the
@@ -432,9 +449,15 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 		}
 	}
 
-	if record.Level >= slog.LevelWarn {
+	if record.Level >= slog.LevelError {
 		record.AddAttrs(
-			slog.String(stackKey(record.Level),
+			slog.String(errorStackKey,
+				errorReportingStack(record, trimStack(debug.Stack())),
+			),
+		)
+	} else if record.Level >= slog.LevelWarn {
+		record.AddAttrs(
+			slog.String(warnStackKey,
 				trimStack(debug.Stack()),
 			),
 		)
