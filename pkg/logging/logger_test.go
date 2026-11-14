@@ -136,6 +136,37 @@ func TestStackTraceKeys(t *testing.T) {
 	}
 }
 
+// redactedError returns its secret from Error() but a redacted LogValue().
+type redactedError struct{ calls *int }
+
+func (e redactedError) Error() string { return "token=secret" }
+
+func (e redactedError) LogValue() slog.Value {
+	*e.calls++
+	return slog.StringValue("[REDACTED]")
+}
+
+func TestStackTraceUsesLogValueOfError(t *testing.T) {
+	var buf bytes.Buffer
+	calls := 0
+	newBufferLogger(&buf).Error("auth failed", logging.Error(redactedError{calls: &calls}))
+	logMap := parseLogEntry(t, &buf)
+
+	stack, _ := logMap["stack_trace"].(string)
+	if !strings.HasPrefix(stack, "auth failed: [REDACTED]\n\n") {
+		t.Errorf("stack_trace title should use LogValue, got: %q", stack)
+	}
+	if strings.Contains(buf.String(), "token=secret") {
+		t.Errorf("secret leaked: %s", buf.String())
+	}
+	if got := logMap["error"]; got != "[REDACTED]" {
+		t.Errorf("error = %v, want [REDACTED]", got)
+	}
+	if calls != 1 {
+		t.Errorf("LogValue called %d times, want 1", calls)
+	}
+}
+
 func newBufferLogger(buf *bytes.Buffer) *logging.Logger {
 	return logging.NewLogger(&logging.LoggerConfig{
 		ProjectID:   "test-project",

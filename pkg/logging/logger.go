@@ -404,6 +404,33 @@ const (
 	warnStackKey  = "stacktrace"
 )
 
+// resolveErrorAttr resolves an "error" attribute that implements
+// slog.LogValuer, so the stack_trace title and the "error" field both use its
+// logging representation (which may be redacted), and a stateful LogValuer is
+// called only once.
+func resolveErrorAttr(record slog.Record) slog.Record {
+	found := false
+	record.Attrs(func(a slog.Attr) bool {
+		if a.Key == "error" && a.Value.Kind() == slog.KindLogValuer {
+			found = true
+			return false
+		}
+		return true
+	})
+	if !found {
+		return record
+	}
+	newRecord := slog.NewRecord(record.Time, record.Level, record.Message, record.PC)
+	record.Attrs(func(a slog.Attr) bool {
+		if a.Key == "error" && a.Value.Kind() == slog.KindLogValuer {
+			a.Value = a.Value.Resolve()
+		}
+		newRecord.AddAttrs(a)
+		return true
+	})
+	return newRecord
+}
+
 // errorReportingStack puts the log message (and the "error" attribute, if any)
 // on the first line, followed by a blank line and the stack, like a Go panic.
 // Error Reporting uses that first line as the title of the error group;
@@ -450,6 +477,7 @@ func (t *spanContextLogHandler) Handle(ctx context.Context, record slog.Record) 
 	}
 
 	if record.Level >= slog.LevelError {
+		record = resolveErrorAttr(record)
 		record.AddAttrs(
 			slog.String(errorStackKey,
 				errorReportingStack(record, trimStack(debug.Stack())),
